@@ -36,7 +36,7 @@ const envSchema = z.object({
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error("❌  Invalid environment variables:");
+  console.error("Invalid environment variables:");
   parsed.error.issues.forEach((i) => {
     console.error(`   ${i.path.join(".")}: ${i.message}`);
   });
@@ -49,8 +49,8 @@ export const config: AppConfig = {
   port: parseInt(e.PORT, 10),
   nodeEnv: e.NODE_ENV,
   databaseUrl: e.DATABASE_URL,
-  upstashRedisUrl: e.UPSTASH_REDIS_REST_URL,
-  upstashRedisToken: e.UPSTASH_REDIS_REST_TOKEN,
+  RedisUrl: e.UPSTASH_REDIS_REST_URL,
+  RedisToken: e.UPSTASH_REDIS_REST_TOKEN,
   openaiApiKey: e.OPENAI_API_KEY,
   openaiChatModel: e.OPENAI_CHAT_MODEL,
   openaiEmbedModel: e.OPENAI_EMBED_MODEL,

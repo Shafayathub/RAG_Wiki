@@ -10,7 +10,7 @@ app.use(
   cors({
     origin:
       config.nodeEnv === "production"
-        ? (process.env["FRONTEND_URL"] ?? "https://yourdomain.com")
+        ? (process.env["FRONTEND_URL"] ?? "https://domain.com")
         : "http://localhost:5173",
     allowedHeaders: ["Content-Type"],
   }),

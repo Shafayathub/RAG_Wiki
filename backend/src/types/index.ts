@@ -92,8 +92,8 @@ export interface AppConfig {
   port: number;
   nodeEnv: "development" | "production" | "test";
   databaseUrl: string;
-  upstashRedisUrl: string;
-  upstashRedisToken: string;
+  RedisUrl: string;
+  RedisToken: string;
   openaiApiKey: string;
   openaiChatModel: string;
   openaiEmbedModel: string;
