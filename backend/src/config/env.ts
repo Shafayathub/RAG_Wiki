@@ -3,16 +3,16 @@ import { z } from "zod";
 import type { AppConfig } from "../types";
 
 const envSchema = z.object({
-  PORT: z.string().default("3001"),
+  PORT: z.string().default("5000"),
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   REDIS_URL: z.string().min(1, "REDIS_URL is required"),
   OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
-  OPENROUTER_MODEL: z.string().default("openai/gpt-4o-mini"),
-  OPENROUTER_EMBED_MODEL: z.string().default("openai/text-embedding-3-small"),
-  EMBED_DIMENSIONS: z.string().default("1536"),
+  OPENROUTER_MODEL: z.string(),
+  OPENROUTER_EMBED_MODEL: z.string(),
+  EMBED_DIMENSIONS: z.string(),
   RATE_LIMIT_WINDOW_MS: z.string().default("900000"),
   RATE_LIMIT_MAX_REQUESTS: z.string().default("100"),
   LLM_RATE_LIMIT_WINDOW_MS: z.string().default("3600000"),
