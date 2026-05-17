@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS chunks (
   chunk_index INTEGER     NOT NULL,
   page_number INTEGER,
   content     TEXT        NOT NULL,
-  embedding   vector(1536),
+  embedding   vector(2000),
   fts_vector  TSVECTOR,
   token_count INTEGER     NOT NULL DEFAULT 0,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
