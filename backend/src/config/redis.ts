@@ -2,12 +2,12 @@ import { createClient, RedisClientType } from "redis";
 import { config } from "./env";
 
 export const redis = createClient({
-  url: config.RedisUrl,
+  url: config.redisUrl,
 }) as RedisClientType;
 
 export async function checkRedisConnection(): Promise<void> {
   try {
-    await redis.connect(); 
+    await redis.connect();
     await redis.ping();
     console.log("✅  Upstash Redis connected");
   } catch (err) {
