@@ -1,25 +1,18 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import { z } from "zod";
-import { AppConfig } from "../types";
-
-dotenv.config();
+import type { AppConfig } from "../types";
 
 const envSchema = z.object({
-  PORT: z.string().default("5000"),
+  PORT: z.string().default("3001"),
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
-  UPSTASH_REDIS_REST_URL: z
-    .string()
-    .min(1, "UPSTASH_REDIS_REST_URL is required"),
-  UPSTASH_REDIS_REST_TOKEN: z
-    .string()
-    .min(1, "UPSTASH_REDIS_REST_TOKEN is required"),
-  OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
-  OPENAI_CHAT_MODEL: z.string().default("gpt-4o-mini"),
-  OPENAI_EMBED_MODEL: z.string().default("text-embedding-3-small"),
-  EMBED_DIMENSIONS: z.string().default("2048"),
+  REDIS_URL: z.string().min(1, "REDIS_URL is required"),
+  OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
+  OPENROUTER_MODEL: z.string().default("openai/gpt-4o-mini"),
+  OPENROUTER_EMBED_MODEL: z.string().default("openai/text-embedding-3-small"),
+  EMBED_DIMENSIONS: z.string().default("1536"),
   RATE_LIMIT_WINDOW_MS: z.string().default("900000"),
   RATE_LIMIT_MAX_REQUESTS: z.string().default("100"),
   LLM_RATE_LIMIT_WINDOW_MS: z.string().default("3600000"),
@@ -36,7 +29,7 @@ const envSchema = z.object({
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error("Invalid environment variables:");
+  console.error("❌  Invalid environment variables:");
   parsed.error.issues.forEach((i) => {
     console.error(`   ${i.path.join(".")}: ${i.message}`);
   });
@@ -49,11 +42,10 @@ export const config: AppConfig = {
   port: parseInt(e.PORT, 10),
   nodeEnv: e.NODE_ENV,
   databaseUrl: e.DATABASE_URL,
-  RedisUrl: e.UPSTASH_REDIS_REST_URL,
-  RedisToken: e.UPSTASH_REDIS_REST_TOKEN,
-  openaiApiKey: e.OPENAI_API_KEY,
-  openaiChatModel: e.OPENAI_CHAT_MODEL,
-  openaiEmbedModel: e.OPENAI_EMBED_MODEL,
+  redisUrl: e.REDIS_URL,
+  openRouterApiKey: e.OPENROUTER_API_KEY,
+  openRouterModel: e.OPENROUTER_MODEL,
+  openRouterEmbedModel: e.OPENROUTER_EMBED_MODEL,
   embedDimensions: parseInt(e.EMBED_DIMENSIONS, 10),
   rateLimitWindowMs: parseInt(e.RATE_LIMIT_WINDOW_MS, 10),
   rateLimitMaxRequests: parseInt(e.RATE_LIMIT_MAX_REQUESTS, 10),
