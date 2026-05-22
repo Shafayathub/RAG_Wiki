@@ -70,7 +70,7 @@ Copy `.env.example` to `.env` and configure:
 
 **Current Implementation Status:**
 - Phase 1: Basic server setup with health check endpoint ✓
-- Phase 2: Ingestion pipeline (planned - currently returns 501)
+- Phase 2: Ingestion pipeline implemented ✓
 - Phase 3-5: Not yet implemented
 - Phase 6: Query pipeline (planned - currently returns 501)
 - Phases 7+: Future enhancements
