@@ -71,8 +71,9 @@ Copy `.env.example` to `.env` and configure:
 **Current Implementation Status:**
 - Phase 1: Basic server setup with health check endpoint ✓
 - Phase 2: Ingestion pipeline implemented ✓
-- Phase 3-5: Not yet implemented
-- Phase 6: Query pipeline (planned - currently returns 501)
+- Phase 3: Hybrid retrieval pipeline implemented ✓
+- Phase 4-5: Not yet implemented
+- Phase 6: Query pipeline with LLM streaming (planned - currently returns 501 for query endpoint, but /retrieve endpoint is functional)
 - Phases 7+: Future enhancements
 
 **Database Schema:**

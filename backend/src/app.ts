@@ -4,6 +4,7 @@ import helmet from "helmet";
 import { config } from "./config/env";
 import { ingestRouter } from "./modules/ingest/ingest.router";
 import { errorHandler } from "./middleware/errorHandler";
+import { queryRouter } from "./modules/query/query.router";
 
 const app: Express = express();
 
@@ -20,6 +21,7 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 
 app.use("/api/v1/ingest", ingestRouter);
+app.use("/api/v1/query", queryRouter);
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
