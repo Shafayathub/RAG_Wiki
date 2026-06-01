@@ -52,7 +52,7 @@ export function useSSEQuery() {
 
       // ── 3. Open SSE connection via fetch (EventSource doesn't support POST)
       try {
-        const res = await fetch("/api/query", {
+        const res = await fetch("/api/v1/query", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

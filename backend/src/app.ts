@@ -5,6 +5,7 @@ import { config } from "./config/env";
 import { ingestRouter } from "./modules/ingest/ingest.router";
 import { errorHandler } from "./middleware/errorHandler";
 import { queryRouter } from "./modules/query/query.router";
+import { collectionsRouter } from "./modules/collections/collections.router";
 
 const app: Express = express();
 
@@ -14,7 +15,7 @@ app.use(
     origin:
       config.nodeEnv === "production"
         ? (process.env["FRONTEND_URL"] ?? "https://domain.com")
-        : "http://localhost:5173",
+        : "http://localhost:5174",
     allowedHeaders: ["Content-Type"],
   }),
 );
@@ -22,6 +23,7 @@ app.use(express.json({ limit: "1mb" }));
 
 app.use("/api/v1/ingest", ingestRouter);
 app.use("/api/v1/query", queryRouter);
+app.use("/api/v1/collections", collectionsRouter);
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
