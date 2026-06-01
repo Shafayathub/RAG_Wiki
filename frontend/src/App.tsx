@@ -1,122 +1,78 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState } from "react";
+import { UploadPanel } from "./components/UploadPanel";
+import { ChatWindow } from "./components/ChatWindow";
+import { QueryInput } from "./components/QueryInput";
+import { useSSEQuery } from "./hooks/useSSEQuery";
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { messages, streamState, sendQuery, clearMessages } = useSSEQuery();
+
+  const isStreaming = streamState.status === "streaming";
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="flex h-screen bg-gray-950 text-gray-100 overflow-hidden">
+      {/* ── Sidebar — upload panel ─────────────────────────────────────── */}
+      <aside
+        className={`
+          flex flex-col shrink-0 border-r border-gray-800
+          transition-all duration-200
+          ${sidebarOpen ? "w-80" : "w-0 overflow-hidden"}
+        `}
+      >
+        <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800">
+          <h1 className="font-bold text-base text-gray-100">🗂 RAG Wiki</h1>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="text-gray-600 hover:text-gray-400 text-sm"
+          >
+            ✕
+          </button>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+        <div className="flex-1 overflow-y-auto p-4">
+          <UploadPanel
+            onUploadSuccess={(name) => {
+              console.log("Uploaded to collection:", name);
+            }}
+          />
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      </aside>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      {/* ── Main — chat area ──────────────────────────────────────────────── */}
+      <main className="flex flex-col flex-1 min-w-0">
+        {/* Top bar */}
+        <header className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 shrink-0">
+          {!sidebarOpen && (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="text-gray-500 hover:text-gray-300 text-sm"
+            >
+              ☰
+            </button>
+          )}
+          <h2 className="text-sm font-medium text-gray-400">
+            Research Assistant
+          </h2>
+
+          {/* Error banner */}
+          {streamState.status === "error" && (
+            <span className="ml-auto text-xs text-red-400 bg-red-900/30 px-2 py-1 rounded">
+              {streamState.errorMessage}
+            </span>
+          )}
+        </header>
+
+        {/* Chat messages */}
+        <ChatWindow
+          messages={messages}
+          isStreaming={isStreaming}
+          onClear={clearMessages}
+        />
+
+        {/* Query input */}
+        <QueryInput onSend={sendQuery} isStreaming={isStreaming} />
+      </main>
+    </div>
+  );
 }
-
-export default App
