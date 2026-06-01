@@ -1,7 +1,7 @@
 import axios from "axios";
 import type { Collection, IngestResponse } from "../types";
 
-const http = axios.create({ baseURL: "http://localhost:5000" });
+const http = axios.create({ baseURL: "http://localhost:3000/api/v1" });
 
 export async function fetchCollections(): Promise<Collection[]> {
   const res = await http.get<{ data: Collection[] }>("/collections");
@@ -23,7 +23,7 @@ export async function uploadDocument(
   form.append("collection_name", collectionName);
 
   const res = await http.post<{ data: IngestResponse }>(
-    "/api/v1/ingest",
+    "/ingest",
     form,
     {
       onUploadProgress: (e) => {
