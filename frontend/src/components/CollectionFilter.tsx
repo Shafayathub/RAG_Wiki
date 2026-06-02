@@ -19,8 +19,8 @@ export function CollectionFilter({ selectedId, onChange }: Props) {
   }, []);
 
   return (
-    <div className="flex items-center gap-2">
-      <label className="text-sm font-medium text-gray-400 whitespace-nowrap">
+    <div className="flex items-center gap-2 flex-wrap">
+      <label className="text-xs sm:text-sm font-medium text-gray-400 whitespace-nowrap">
         Scope to
       </label>
       <select
@@ -30,9 +30,10 @@ export function CollectionFilter({ selectedId, onChange }: Props) {
           onChange(e.target.value ? parseInt(e.target.value, 10) : undefined)
         }
         className="
-          bg-gray-800 border border-gray-700 text-gray-200 text-sm
-          rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2
+          bg-gray-800 border border-gray-700 text-gray-200 text-xs sm:text-sm
+          rounded-lg px-2 sm:px-3 py-1.5 focus:outline-none focus:ring-2
           focus:ring-indigo-500 disabled:opacity-50
+          min-w-0 max-w-full flex-1 sm:flex-none
         "
       >
         <option value="">All collections</option>

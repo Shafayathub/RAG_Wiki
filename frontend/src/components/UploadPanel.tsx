@@ -70,8 +70,8 @@ export function UploadPanel({ onUploadSuccess }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold text-gray-100">Upload Document</h2>
+    <div className="flex flex-col gap-3 sm:gap-4">
+      <h2 className="text-base sm:text-lg font-semibold text-gray-100">Upload Document</h2>
 
       {/* Collection name input */}
       <input
@@ -80,8 +80,8 @@ export function UploadPanel({ onUploadSuccess }: Props) {
         value={collectionName}
         onChange={(e) => setCollectionName(e.target.value)}
         className="
-          bg-gray-800 border border-gray-700 rounded-lg px-4 py-2
-          text-gray-200 placeholder-gray-500 text-sm
+          bg-gray-800 border border-gray-700 rounded-lg px-3 sm:px-4 py-2
+          text-gray-200 placeholder-gray-500 text-sm w-full
           focus:outline-none focus:ring-2 focus:ring-indigo-500
         "
       />
@@ -96,20 +96,19 @@ export function UploadPanel({ onUploadSuccess }: Props) {
         onDragLeave={() => setIsDragging(false)}
         onDrop={onDrop}
         className={`
-          border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
+          border-2 border-dashed rounded-xl p-4 sm:p-6 text-center cursor-pointer
           transition-colors duration-150
-          ${
-            isDragging
-              ? "border-indigo-400 bg-indigo-950/30"
-              : "border-gray-700 hover:border-gray-500"
+          ${isDragging
+            ? "border-indigo-400 bg-indigo-950/30"
+            : "border-gray-700 hover:border-gray-500"
           }
         `}
       >
-        <div className="text-4xl mb-2">📄</div>
-        <p className="text-gray-400 text-sm">
+        <div className="text-2xl sm:text-3xl mb-2">📄</div>
+        <p className="text-gray-400 text-xs sm:text-sm">
           Drop a PDF or Markdown file here
         </p>
-        <p className="text-gray-600 text-xs mt-1">or click to browse</p>
+        <p className="text-gray-600 text-xs mt-1">or tap to browse</p>
         <input
           ref={inputRef}
           type="file"
@@ -138,7 +137,7 @@ export function UploadPanel({ onUploadSuccess }: Props) {
       {/* Status message */}
       {message && (
         <p
-          className={`text-sm ${
+          className={`text-xs sm:text-sm break-words ${
             status === "error" ? "text-red-400" : "text-green-400"
           }`}
         >

@@ -26,10 +26,10 @@ export function ChatWindow({ messages, isStreaming, onClear }: Props) {
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-gray-600">
+      <div className="flex-1 flex items-center justify-center text-gray-600 px-4">
         <div className="text-center space-y-2">
-          <div className="text-5xl">🔍</div>
-          <p className="text-sm">Ask a question about your documents</p>
+          <div className="text-4xl sm:text-5xl">🔍</div>
+          <p className="text-xs sm:text-sm">Ask a question about your documents</p>
         </div>
       </div>
     );
@@ -38,7 +38,7 @@ export function ChatWindow({ messages, isStreaming, onClear }: Props) {
   return (
     <div className="flex flex-1 min-h-0 relative">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
         {messages.map((msg) => (
           <MessageBubble
             key={msg.id}
@@ -66,6 +66,7 @@ export function ChatWindow({ messages, isStreaming, onClear }: Props) {
           className="
             absolute top-2 right-2 text-xs text-gray-600
             hover:text-gray-400 transition-colors
+            bg-gray-900/80 backdrop-blur-sm px-2 py-1 rounded-md
           "
         >
           Clear chat
@@ -74,18 +75,27 @@ export function ChatWindow({ messages, isStreaming, onClear }: Props) {
 
       {/* Citation drawer — slides in from the right */}
       {drawerOpen && (
-        <div
-          className="
-            absolute right-0 top-0 h-full w-80
-            bg-gray-900 border-l border-gray-700
-            shadow-xl z-10 flex flex-col
-          "
-        >
-          <CitationDrawer
-            chunks={drawerChunks}
-            onClose={() => setDrawerOpen(false)}
+        <>
+          {/* Backdrop on mobile */}
+          <div
+            onClick={() => setDrawerOpen(false)}
+            className="absolute inset-0 bg-black/40 z-[9] sm:hidden"
           />
-        </div>
+          <div
+            className="
+              absolute right-0 top-0 h-full
+              w-full sm:w-80
+              bg-gray-900 border-l border-gray-700
+              shadow-xl z-10 flex flex-col
+              animate-slide-in-right
+            "
+          >
+            <CitationDrawer
+              chunks={drawerChunks}
+              onClose={() => setDrawerOpen(false)}
+            />
+          </div>
+        </>
       )}
     </div>
   );
@@ -105,7 +115,8 @@ function MessageBubble({ message, onViewCitations }: BubbleProps) {
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
         className={`
-          max-w-[80%] rounded-2xl px-4 py-3 space-y-2
+          max-w-[92%] sm:max-w-[80%] lg:max-w-[70%]
+          rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 space-y-2
           ${isUser ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-200"}
         `}
       >
@@ -118,9 +129,9 @@ function MessageBubble({ message, onViewCitations }: BubbleProps) {
 
         {/* Content — render markdown for assistant messages */}
         {isUser ? (
-          <p className="text-sm">{message.content}</p>
+          <p className="text-sm break-words">{message.content}</p>
         ) : (
-          <div className="text-sm prose prose-sm prose-invert max-w-none">
+          <div className="text-sm prose prose-sm prose-invert max-w-none break-words">
             <ReactMarkdown>{message.content}</ReactMarkdown>
             {message.isStreaming && (
               <span className="inline-block w-1.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-middle" />
@@ -146,7 +157,7 @@ function MessageBubble({ message, onViewCitations }: BubbleProps) {
 
         {/* Meta — cache hit badge + latency */}
         {!isUser && message.meta && (
-          <div className="flex items-center gap-2 text-xs text-gray-600">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
             <span>{message.meta.latency_ms}ms</span>
             {message.meta.cache_hit !== "none" && (
               <span
