@@ -37,7 +37,7 @@ export function QueryInput({ onSend, isStreaming }: Props) {
   }
 
   return (
-    <div className="border-t border-gray-700 px-4 py-3 space-y-2">
+    <div className="border-t border-gray-700 px-3 sm:px-4 py-2.5 sm:py-3 space-y-2">
       <CollectionFilter selectedId={collectionId} onChange={setCollectionId} />
 
       <div className="flex items-end gap-2">
@@ -48,10 +48,10 @@ export function QueryInput({ onSend, isStreaming }: Props) {
           onChange={onInput}
           onKeyDown={onKeyDown}
           disabled={isStreaming}
-          placeholder="Ask a question… (Enter to send, Shift+Enter for new line)"
+          placeholder="Ask a question…"
           className="
             flex-1 resize-none bg-gray-800 border border-gray-700
-            rounded-xl px-4 py-2.5 text-sm text-gray-200
+            rounded-xl px-3 sm:px-4 py-2.5 text-sm text-gray-200
             placeholder-gray-600 focus:outline-none focus:ring-2
             focus:ring-indigo-500 disabled:opacity-50
             max-h-40 overflow-y-auto
@@ -64,20 +64,27 @@ export function QueryInput({ onSend, isStreaming }: Props) {
           className="
             bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40
             disabled:cursor-not-allowed text-white rounded-xl
-            px-4 py-2.5 text-sm font-medium transition-colors
+            px-3 sm:px-4 py-2.5 text-sm font-medium transition-colors
             flex items-center gap-1.5 shrink-0
           "
         >
           {isStreaming ? (
             <>
               <span className="animate-spin text-base">⏳</span>
-              Thinking
+              <span className="hidden sm:inline">Thinking</span>
             </>
           ) : (
-            <>Send ↑</>
+            <>
+              <span className="hidden sm:inline">Send</span> ↑
+            </>
           )}
         </button>
       </div>
+
+      {/* Mobile hint — only visible on small screens */}
+      <p className="text-[10px] text-gray-700 sm:hidden text-center">
+        Enter to send · Shift+Enter for new line
+      </p>
     </div>
   );
 }
