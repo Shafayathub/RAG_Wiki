@@ -79,7 +79,7 @@ export function ChatWindow({ messages, isStreaming, onClear }: Props) {
           {/* Backdrop on mobile */}
           <div
             onClick={() => setDrawerOpen(false)}
-            className="absolute inset-0 bg-black/40 z-[9] sm:hidden"
+            className="absolute inset-0 bg-black/40 z-9 sm:hidden"
           />
           <div
             className="
@@ -129,9 +129,9 @@ function MessageBubble({ message, onViewCitations }: BubbleProps) {
 
         {/* Content — render markdown for assistant messages */}
         {isUser ? (
-          <p className="text-sm break-words">{message.content}</p>
+          <p className="text-sm wrap-break-word">{message.content}</p>
         ) : (
-          <div className="text-sm prose prose-sm prose-invert max-w-none break-words">
+          <div className="text-sm prose prose-sm prose-invert max-w-none wrap-break-word">
             <ReactMarkdown>{message.content}</ReactMarkdown>
             {message.isStreaming && (
               <span className="inline-block w-1.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-middle" />
