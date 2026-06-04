@@ -63,28 +63,33 @@ Follow these steps to set up the project for development:
    - Click the "Fork" button on the top right of the repository page
 
 2. **Clone your fork**
+
    ```bash
    git clone https://github.com/your-username/ai-research-assistant.git
    cd ai-research-assistant
    ```
 
 3. **Install dependencies**
+
    ```bash
    pnpm install
    ```
 
 4. **Set up environment variables**
+
    ```bash
    cp .env.example .env
    ```
+
    Edit `.env` with your configuration:
    - `POSTGRES_URL` - PostgreSQL connection string
    - `REDIS_URL` - Redis connection string
    - `OPENAI_API_KEY` - OpenAI API key
-   - `PORT` - Server port (default: 3000)
+   - `PORT` - Server port (default: 5000)
    - `NODE_ENV` - Environment (development/production)
 
 5. **Set up the database**
+
    ```bash
    pnpm migrate
    ```
@@ -93,12 +98,14 @@ Follow these steps to set up the project for development:
    ```bash
    pnpm dev
    ```
-   - Backend API will be available at `http://localhost:3000`
+
+   - Backend API will be available at `http://localhost:5000`
    - Frontend will be available at `http://localhost:5173`
 
 ## 📥 Pull Request Process
 
 1. **Create a branch**
+
    ```bash
    git checkout -b feature/your-feature-name
    # or
@@ -111,22 +118,25 @@ Follow these steps to set up the project for development:
    - Update documentation as needed
 
 3. **Test your changes**
+
    ```bash
    # Run linting
    pnpm lint
-   
+
    # Run tests
    pnpm test
-   
+
    # Start the app to manually test
    pnpm dev
    ```
 
 4. **Commit your changes**
+
    ```bash
    git add .
    git commit -m "type: brief description of changes"
    ```
+
    Please follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
    - `feat:` for new features
    - `fix:` for bug fixes
@@ -137,6 +147,7 @@ Follow these steps to set up the project for development:
    - `chore:` for maintenance tasks
 
 5. **Push to your fork**
+
    ```bash
    git push origin feature/your-feature-name
    ```
@@ -219,6 +230,7 @@ pnpm format
 ## 🐛 Bug Triage
 
 When submitting a bug report, please use the following labels if applicable:
+
 - `bug`: Confirmed bug
 - `duplicate`: Issue is a duplicate of an existing one
 - `good first issue`: Suitable for newcomers
@@ -231,6 +243,7 @@ When submitting a bug report, please use the following labels if applicable:
 ## 🏷️ Pull Request Labels
 
 When reviewing PRs, maintainers may use these labels:
+
 - `needs-review`: PR ready for review
 - `changes-requested`: Author needs to make changes
 - `approved`: Reviewer has approved the PR
@@ -241,6 +254,7 @@ When reviewing PRs, maintainers may use these labels:
 ## 🙌 Recognition
 
 Contributors will be acknowledged in:
+
 - Repository contributors list
 - Release notes for significant contributions
 - Project documentation (if applicable)
@@ -249,6 +263,7 @@ Contributors will be acknowledged in:
 ## ❓ Need Help?
 
 If you have questions during the contribution process:
+
 - Check existing [issues](../../issues) and [discussions](../../discussions)
 - Ask for clarification in issue comments
 - Reach out to maintainers through GitHub
@@ -257,4 +272,4 @@ Thank you again for contributing to AI Research Assistant! Your help makes this 
 
 ---
 
-*Last updated: June 2026*
+_Last updated: June 2026_

@@ -78,7 +78,7 @@ cp .env.example .env
 #   POSTGRES_URL=postgresql://user:pass@localhost:5432/dbname
 #   REDIS_URL=redis://localhost:6379
 #   OPENAI_API_KEY=your_openai_key
-#   PORT=3000 (optional)
+#   PORT=5000 (optional)
 #   NODE_ENV=development
 
 # Run database migrations
@@ -88,7 +88,7 @@ pnpm migrate
 pnpm dev
 
 # Frontend will be available at http://localhost:5173
-# Backend API at http://localhost:3000/api
+# Backend API at http://localhost:5000/api
 ```
 
 ### Production Build
