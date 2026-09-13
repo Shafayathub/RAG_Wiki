@@ -6,6 +6,12 @@ export interface Collection {
   created_at: string;
 }
 
+/** A collection plus the aggregate counts the sidebar and filter render. */
+export interface CollectionSummary extends Collection {
+  document_count: number;
+  chunk_count: number;
+}
+
 export interface IngestResponse {
   document_id: number;
   collection_id: number;
@@ -44,6 +50,8 @@ export interface ChatMessage {
   citations: CitationPayload | null;
   meta: QueryMeta | null;
   isStreaming: boolean;
+  /** Set when `content` holds a failure message rather than an answer. */
+  isError?: boolean;
 }
 
 // ── SSE stream state ──────────────────────────────────────────────────────────

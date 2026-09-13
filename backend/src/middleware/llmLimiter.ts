@@ -1,20 +1,18 @@
-import { Request, Response, NextFunction } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { redis } from "../config/redis";
 import { config } from "../config/env";
 
+/**
+ * Per-IP budget guard on the only endpoint that spends money. Separate from
+ * the general rate limiter because the limits differ by orders of magnitude:
+ * browsing collections is free, generating an answer is not.
+ */
 export async function llmCostLimiter(
   req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const ip =
-    (req.headers["x-forwarded-for"] as string | undefined)
-      ?.split(",")[0]
-      ?.trim() ??
-    req.socket.remoteAddress ??
-    "unknown";
-
-  const key = `llm_limit:${ip}`;
+  const key = `llm_limit:${req.ip ?? "unknown"}`;
   const windowSec = Math.floor(config.llmRateLimitWindowMs / 1000);
 
   try {
@@ -24,17 +22,20 @@ export async function llmCostLimiter(
     if (count > config.llmRateLimitMax) {
       const ttl = await redis.ttl(key);
       res.status(429).json({
-        error: `LLM query limit reached. Max ${config.llmRateLimitMax} queries/hour.`,
+        error: `Query limit reached. Max ${config.llmRateLimitMax} questions per ${Math.round(
+          windowSec / 60,
+        )} minutes.`,
         code: "LLM_RATE_LIMIT_EXCEEDED",
-        retry_after_seconds: ttl,
+        retry_after_seconds: ttl > 0 ? ttl : windowSec,
       });
       return;
     }
 
     next();
   } catch (err) {
-    // Fail open — a Redis outage must not block real users
-    console.error("llmCostLimiter error (failing open):", err);
+    req.log.warn("LLM cost limiter unavailable — allowing request", {
+      message: err instanceof Error ? err.message : String(err),
+    });
     next();
   }
 }

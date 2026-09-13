@@ -1,61 +1,134 @@
 import "dotenv/config";
 import { z } from "zod";
-import type { AppConfig } from "../types";
+
+/** `"false"`/`"0"` must read as false — `Boolean("false")` does not. */
+const booleanFromEnv = (fallback: boolean) =>
+  z
+    .string()
+    .optional()
+    .transform((value) =>
+      value === undefined || value.trim() === ""
+        ? fallback
+        : ["1", "true", "yes", "on"].includes(value.trim().toLowerCase()),
+    );
+
+const csvFromEnv = z
+  .string()
+  .optional()
+  .transform((value) =>
+    (value ?? "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
+  );
 
 const envSchema = z.object({
-  PORT: z.string().default("5000"),
-  NODE_ENV: z
-    .enum(["development", "production", "test"])
-    .default("development"),
+  PORT: z.coerce.number().int().positive().default(5000),
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
-  REDIS_URL: z.string().min(1, "REDIS_URL is required"),
+  // Upstash shows an https:// REST URL on its dashboard, but node-redis speaks
+  // the RESP protocol — pasting the REST URL fails at connect time with a
+  // confusing socket error, so reject it here with an actionable message.
+  REDIS_URL: z
+    .string()
+    .min(1, "REDIS_URL is required")
+    .refine(
+      (value) => value.startsWith("redis://") || value.startsWith("rediss://"),
+      "REDIS_URL must start with redis:// or rediss:// (use the RESP URL, not the Upstash REST URL)",
+    ),
+
   OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
-  OPENROUTER_MODEL: z.string(),
-  OPENROUTER_EMBED_MODEL: z.string(),
-  EMBED_DIMENSIONS: z.string(),
-  RATE_LIMIT_WINDOW_MS: z.string().default("900000"),
-  RATE_LIMIT_MAX_REQUESTS: z.string().default("100"),
-  LLM_RATE_LIMIT_WINDOW_MS: z.string().default("3600000"),
-  LLM_RATE_LIMIT_MAX: z.string().default("10"),
-  CHUNK_SIZE: z.string().default("512"),
-  CHUNK_OVERLAP: z.string().default("50"),
-  TOP_K_RESULTS: z.string().default("5"),
-  MAX_FILE_SIZE_MB: z.string().default("20"),
-  CACHE_TTL_QUERY: z.string().default("3600"),
-  CACHE_TTL_EMBEDDING: z.string().default("86400"),
-  CACHE_TTL_RETRIEVAL: z.string().default("1800"),
+  OPENROUTER_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
+  OPENROUTER_EMBED_MODEL: z.string().min(1).default("openai/text-embedding-3-small"),
+
+  /** Public origin of the deployed app. Used for CORS and OpenRouter attribution. */
+  APP_URL: z.string().url().default("http://localhost:5173"),
+  /** Extra allowed browser origins, comma separated. APP_URL is always allowed. */
+  CORS_ORIGINS: csvFromEnv,
+
+  EMBED_DIMENSIONS: z.coerce.number().int().positive().max(2000).default(1536),
+  CHUNK_SIZE: z.coerce.number().int().positive().default(512),
+  CHUNK_OVERLAP: z.coerce.number().int().nonnegative().default(50),
+  TOP_K_RESULTS: z.coerce.number().int().positive().max(20).default(5),
+  /** Vercel caps serverless request bodies at 4.5MB — stay under it by default. */
+  MAX_FILE_SIZE_MB: z.coerce.number().positive().max(50).default(4),
+
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
+  LLM_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(3_600_000),
+  LLM_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+
+  CACHE_TTL_QUERY: z.coerce.number().int().positive().default(3600),
+  CACHE_TTL_EMBEDDING: z.coerce.number().int().positive().default(86_400),
+  CACHE_TTL_RETRIEVAL: z.coerce.number().int().positive().default(1800),
+
+  /**
+   * Public demo hardening. When on, destructive endpoints require ADMIN_TOKEN,
+   * so a stranger cannot wipe the seeded collections behind the resume link.
+   */
+  DEMO_MODE: booleanFromEnv(false),
+  ADMIN_TOKEN: z.string().min(16).optional(),
+
+  LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error("❌  Invalid environment variables:");
-  parsed.error.issues.forEach((i) => {
-    console.error(`   ${i.path.join(".")}: ${i.message}`);
-  });
-  process.exit(1);
+  const detail = parsed.error.issues
+    .map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`)
+    .join("\n");
+
+  // Throwing beats process.exit here: serverless platforms surface the message
+  // in the function log, and tests get a real stack instead of a dead worker.
+  throw new Error(`Invalid environment configuration:\n${detail}`);
 }
 
-const e = parsed.data;
+const env = parsed.data;
 
-export const config: AppConfig = {
-  port: parseInt(e.PORT, 10),
-  nodeEnv: e.NODE_ENV,
-  databaseUrl: e.DATABASE_URL,
-  redisUrl: e.REDIS_URL,
-  openRouterApiKey: e.OPENROUTER_API_KEY,
-  openRouterModel: e.OPENROUTER_MODEL,
-  openRouterEmbedModel: e.OPENROUTER_EMBED_MODEL,
-  embedDimensions: parseInt(e.EMBED_DIMENSIONS, 10),
-  rateLimitWindowMs: parseInt(e.RATE_LIMIT_WINDOW_MS, 10),
-  rateLimitMaxRequests: parseInt(e.RATE_LIMIT_MAX_REQUESTS, 10),
-  llmRateLimitWindowMs: parseInt(e.LLM_RATE_LIMIT_WINDOW_MS, 10),
-  llmRateLimitMax: parseInt(e.LLM_RATE_LIMIT_MAX, 10),
-  chunkSize: parseInt(e.CHUNK_SIZE, 10),
-  chunkOverlap: parseInt(e.CHUNK_OVERLAP, 10),
-  topKResults: parseInt(e.TOP_K_RESULTS, 10),
-  maxFileSizeMb: parseInt(e.MAX_FILE_SIZE_MB, 10),
-  cacheTtlQuery: parseInt(e.CACHE_TTL_QUERY, 10),
-  cacheTtlEmbedding: parseInt(e.CACHE_TTL_EMBEDDING, 10),
-  cacheTtlRetrieval: parseInt(e.CACHE_TTL_RETRIEVAL, 10),
-};
+const allowedOrigins = Array.from(new Set([env.APP_URL, ...env.CORS_ORIGINS]));
+
+if (env.DEMO_MODE && !env.ADMIN_TOKEN) {
+  throw new Error(
+    "DEMO_MODE requires ADMIN_TOKEN (min 16 chars) so destructive endpoints stay reachable to you.",
+  );
+}
+
+export const config = {
+  port: env.PORT,
+  nodeEnv: env.NODE_ENV,
+  isProduction: env.NODE_ENV === "production",
+  /** Vercel sets this on every serverless invocation. */
+  isServerless: Boolean(process.env["VERCEL"]),
+
+  databaseUrl: env.DATABASE_URL,
+  redisUrl: env.REDIS_URL,
+
+  openRouterApiKey: env.OPENROUTER_API_KEY,
+  openRouterModel: env.OPENROUTER_MODEL,
+  openRouterEmbedModel: env.OPENROUTER_EMBED_MODEL,
+
+  appUrl: env.APP_URL,
+  allowedOrigins,
+
+  embedDimensions: env.EMBED_DIMENSIONS,
+  chunkSize: env.CHUNK_SIZE,
+  chunkOverlap: env.CHUNK_OVERLAP,
+  topKResults: env.TOP_K_RESULTS,
+  maxFileSizeMb: env.MAX_FILE_SIZE_MB,
+
+  rateLimitWindowMs: env.RATE_LIMIT_WINDOW_MS,
+  rateLimitMaxRequests: env.RATE_LIMIT_MAX_REQUESTS,
+  llmRateLimitWindowMs: env.LLM_RATE_LIMIT_WINDOW_MS,
+  llmRateLimitMax: env.LLM_RATE_LIMIT_MAX,
+
+  cacheTtlQuery: env.CACHE_TTL_QUERY,
+  cacheTtlEmbedding: env.CACHE_TTL_EMBEDDING,
+  cacheTtlRetrieval: env.CACHE_TTL_RETRIEVAL,
+
+  demoMode: env.DEMO_MODE,
+  adminToken: env.ADMIN_TOKEN,
+} as const;
+
+export type AppConfig = typeof config;

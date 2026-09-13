@@ -6,6 +6,12 @@ export interface Collection {
   created_at: Date;
 }
 
+/** A collection plus the aggregate counts the sidebar renders. */
+export interface CollectionSummary extends Collection {
+  document_count: number;
+  chunk_count:    number;
+}
+
 export interface Document {
   id:            number;
   collection_id: number;
@@ -109,40 +115,6 @@ export type SSEEvent =
   | { event: "meta";     data: QueryMetadata }
   | { event: "error";    data: { message: string } };
 
-// ── Config ────────────────────────────────────────────────────────────────────
-
-export interface AppConfig {
-  port:                 number;
-  nodeEnv:              "development" | "production" | "test";
-  databaseUrl:          string;
-  redisUrl:             string;
-  openRouterApiKey:     string;
-  openRouterModel:      string;
-  openRouterEmbedModel: string;
-  embedDimensions:      number;
-  rateLimitWindowMs:    number;
-  rateLimitMaxRequests: number;
-  llmRateLimitWindowMs: number;
-  llmRateLimitMax:      number;
-  chunkSize:            number;
-  chunkOverlap:         number;
-  topKResults:          number;
-  maxFileSizeMb:        number;
-  cacheTtlQuery:        number;
-  cacheTtlEmbedding:    number;
-  cacheTtlRetrieval:    number;
-}
-
 // ── Error ─────────────────────────────────────────────────────────────────────
-
-export class AppError extends Error {
-  constructor(
-    public readonly statusCode: number,
-    message: string,
-    public readonly code?: string,
-  ) {
-    super(message);
-    this.name = "AppError";
-    Object.setPrototypeOf(this, new.target.prototype);
-  }
-}
+// Single definition, re-exported so both import paths resolve to one class.
+export { AppError } from "../utils/AppError";

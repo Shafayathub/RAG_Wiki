@@ -1,4 +1,8 @@
-import { Request, Response, NextFunction } from "express";
+import type { NextFunction, Request, Response } from "express";
+import {
+  collectionIdParamSchema,
+  createCollectionSchema,
+} from "./collections.schema";
 import {
   fetchAllCollections,
   insertCollection,
@@ -11,8 +15,7 @@ export async function getAllCollections(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const collections = await fetchAllCollections();
-    res.json({ data: collections });
+    res.json({ data: await fetchAllCollections() });
   } catch (err) {
     next(err);
   }
@@ -23,10 +26,14 @@ export async function createCollection(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
+  const parsed = createCollectionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    next(parsed.error);
+    return;
+  }
+
   try {
-    const { name } = req.body as { name: string };
-    const collection = await insertCollection(name);
-    res.status(201).json({ data: collection });
+    res.status(201).json({ data: await insertCollection(parsed.data.name) });
   } catch (err) {
     next(err);
   }
@@ -37,12 +44,14 @@ export async function deleteCollection(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
+  const parsed = collectionIdParamSchema.safeParse(req.params);
+  if (!parsed.success) {
+    next(parsed.error);
+    return;
+  }
+
   try {
-    const idParam = Array.isArray(req.params.id)
-      ? req.params.id[0]
-      : req.params.id;
-    const id = parseInt(idParam ?? "", 10);
-    await removeCollection(id);
+    await removeCollection(parsed.data.id);
     res.json({ message: "Collection deleted" });
   } catch (err) {
     next(err);

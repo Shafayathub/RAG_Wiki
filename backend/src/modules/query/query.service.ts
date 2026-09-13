@@ -2,232 +2,198 @@ import { redis, CacheKeys } from "../../config/redis";
 import { llm } from "../../config/openrouter";
 import { pool } from "../../config/db";
 import { config } from "../../config/env";
-import {
-  ScoredChunk,
-  CitationPayload,
-  QueryMetadata,
-  CacheHitType,
-} from "../../types";
+import { logger } from "../../utils/logger";
 import { hybridSearch } from "../../utils/retriever";
 import { buildContext, extractCitedSources } from "../../utils/contextBuilder";
+import type {
+  CacheHitType,
+  CitationPayload,
+  QueryMetadata,
+  ScoredChunk,
+} from "../../types";
 
-export interface QueryPipelineResult {
-  answer:    string;
+export interface CachedAnswer {
+  answer: string;
   citations: CitationPayload;
-  meta:      QueryMetadata;
+  meta: QueryMetadata;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Query log — fire-and-forget, never blocks the response
-// ─────────────────────────────────────────────────────────────────────────────
+export type QueryStreamEvent =
+  | { type: "token"; token: string }
+  | { type: "citation"; payload: CitationPayload }
+  | { type: "meta"; meta: QueryMetadata };
+
+const NO_CONTEXT_ANSWER =
+  "I cannot find this in the provided documents. Try uploading a relevant document, or widening the collection filter to All collections.";
+
+/** Total wall-clock budget for replaying a cached answer as a fake stream. */
+const REPLAY_BUDGET_MS = 1_200;
 
 async function writeQueryLog(
-  queryText:    string,
+  queryText: string,
   collectionId: number | undefined,
-  chunkIds:     number[],
-  answer:       string,
-  latencyMs:    number,
-  cacheHit:     CacheHitType,
+  chunkIds: number[],
+  answer: string,
+  latencyMs: number,
+  cacheHit: CacheHitType,
 ): Promise<void> {
   try {
     await pool.query(
       `INSERT INTO query_logs
          (query_text, collection_id, retrieved_chunk_ids, answer_preview, latency_ms, cache_hit)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        queryText,
-        collectionId ?? null,
-        chunkIds,
-        answer.slice(0, 500),
-        latencyMs,
-        cacheHit,
-      ],
+      [queryText, collectionId ?? null, chunkIds, answer.slice(0, 500), latencyMs, cacheHit],
     );
   } catch (err) {
-    // Log write failure is non-fatal — never surface to user
-    console.error("Failed to write query log:", err);
+    // Analytics must never break an answer that was otherwise delivered.
+    logger.warn("Failed to write query log", {
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Build citation payload from cited source ids + chunk map
-// ─────────────────────────────────────────────────────────────────────────────
-
 function buildCitationPayload(
   citedSourceIds: string[],
-  chunkMap:       Map<string, ScoredChunk>,
+  chunkMap: Map<string, ScoredChunk>,
 ): CitationPayload {
   const chunks = citedSourceIds
-    .map((sourceId) => {
-      const chunk = chunkMap.get(sourceId);
-      if (!chunk) return null;
-
-      return {
-        chunk_id:        chunk.chunk_id,
-        document_id:     chunk.document_id,
-        filename:        chunk.filename,
-        page_number:     chunk.page_number,
-        chunk_index:     chunk.chunk_index,
-        content_preview: chunk.content.slice(0, 200),
-      };
-    })
-    .filter((c): c is NonNullable<typeof c> => c !== null);
+    .map((sourceId) => chunkMap.get(sourceId))
+    .filter((chunk): chunk is ScoredChunk => chunk !== undefined)
+    .map((chunk) => ({
+      chunk_id: chunk.chunk_id,
+      document_id: chunk.document_id,
+      filename: chunk.filename,
+      page_number: chunk.page_number,
+      chunk_index: chunk.chunk_index,
+      content_preview: chunk.content.slice(0, 200),
+    }));
 
   return { chunks };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Non-streaming pipeline — used for cache hits
-//  Returns the full result immediately so the controller can
-//  replay it token-by-token over SSE (simulated streaming).
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function runQueryPipeline(
-  query:        string,
-  collectionId: number | undefined,
-  topK:         number,
-): Promise<QueryPipelineResult> {
-  const startTime = Date.now();
-
-  // ── 1. Query cache check ──────────────────────────────────────────────────
-  const queryCacheKey = CacheKeys.query(query, collectionId);
-
+async function readCachedAnswer(cacheKey: string): Promise<CachedAnswer | null> {
   try {
-    const cachedString = await redis.get(queryCacheKey);
-    if (cachedString) {
-      const cached = JSON.parse(cachedString) as QueryPipelineResult;
-      // Update meta to reflect it was a cache hit
-      cached.meta.cache_hit = "query";
-
-      writeQueryLog(
-        query,
-        collectionId,
-        cached.meta.retrieved_chunk_ids,
-        cached.answer,
-        Date.now() - startTime,
-        "query",
-      );
-
-      return cached;
-    }
+    const raw = await redis.get(cacheKey);
+    return raw ? (JSON.parse(raw) as CachedAnswer) : null;
   } catch {
-    // Redis down — proceed to full pipeline
+    return null;
   }
-
-  // ── 2. Hybrid retrieval (has its own retrieval cache inside) ──────────────
-  const chunks = await hybridSearch(query, collectionId, topK);
-
-  // ── 3. Build prompt ───────────────────────────────────────────────────────
-  const { prompt, chunkMap } = buildContext(query, chunks);
-
-  // ── 4. LLM call (non-streaming — collect full answer for caching) ─────────
-  const completion = await llm.chat.completions.create({
-    model:    config.openRouterModel,
-    messages: [{ role: "user", content: prompt }],
-    stream:   false,
-  });
-
-  const answer = completion.choices[0]?.message?.content ?? "";
-
-  // ── 5. Extract citations ──────────────────────────────────────────────────
-  const citedSourceIds = extractCitedSources(answer);
-  const citations      = buildCitationPayload(citedSourceIds, chunkMap);
-  const chunkIds       = chunks.map((c) => c.chunk_id);
-  const latencyMs      = Date.now() - startTime;
-
-  const result: QueryPipelineResult = {
-    answer,
-    citations,
-    meta: {
-      latency_ms:           latencyMs,
-      retrieved_chunk_ids:  chunkIds,
-      cache_hit:            "none",
-    },
-  };
-
-  // ── 6. Cache the full result ──────────────────────────────────────────────
-  try {
-    await redis.set(queryCacheKey, JSON.stringify(result), { EX: config.cacheTtlQuery });
-  } catch {
-    // Cache write failed — not fatal
-  }
-
-  // ── 7. Write query log ────────────────────────────────────────────────────
-  writeQueryLog(query, collectionId, chunkIds, answer, latencyMs, "none");
-
-  return result;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Streaming pipeline — used for fresh (non-cached) queries
-//  Yields tokens as they arrive so the controller can pipe
-//  them directly to the SSE response.
-// ─────────────────────────────────────────────────────────────────────────────
+async function writeCachedAnswer(cacheKey: string, value: CachedAnswer): Promise<void> {
+  try {
+    await redis.set(cacheKey, JSON.stringify(value), { EX: config.cacheTtlQuery });
+  } catch {
+    // A cold cache is a performance problem, not a correctness one.
+  }
+}
 
-export async function* streamQueryPipeline(
-  query:        string,
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Replays a cached answer word by word so a cache hit looks identical to a
+ * live generation. The per-word delay shrinks with answer length, keeping the
+ * whole replay inside a fixed budget instead of scaling with the answer.
+ */
+async function* replay(answer: string): AsyncGenerator<QueryStreamEvent> {
+  const words = answer.split(" ");
+  const delayMs = Math.min(15, REPLAY_BUDGET_MS / Math.max(words.length, 1));
+
+  for (const word of words) {
+    yield { type: "token", token: `${word} ` };
+    if (delayMs >= 1) await sleep(delayMs);
+  }
+}
+
+/**
+ * The single entry point for answering a question.
+ *
+ * Cache hit and cache miss emit exactly the same event sequence, so the client
+ * never branches on which path ran. It only reads meta.cache_hit to show a badge.
+ */
+export async function* streamQuery(
+  query: string,
   collectionId: number | undefined,
-  topK:         number,
-): AsyncGenerator<
-  | { type: "token";    token: string }
-  | { type: "citation"; payload: CitationPayload }
-  | { type: "meta";     meta: QueryMetadata },
-  void,
-  unknown
-> {
-  const startTime = Date.now();
+  topK: number,
+): AsyncGenerator<QueryStreamEvent> {
+  const startedAt = Date.now();
+  const cacheKey = CacheKeys.query(query, collectionId);
 
-  // ── 1. Retrieve ───────────────────────────────────────────────────────────
+  const cached = await readCachedAnswer(cacheKey);
+
+  if (cached) {
+    yield* replay(cached.answer);
+    yield { type: "citation", payload: cached.citations };
+
+    const meta: QueryMetadata = {
+      ...cached.meta,
+      latency_ms: Date.now() - startedAt,
+      cache_hit: "query",
+    };
+    yield { type: "meta", meta };
+
+    await writeQueryLog(
+      query,
+      collectionId,
+      cached.meta.retrieved_chunk_ids,
+      cached.answer,
+      meta.latency_ms,
+      "query",
+    );
+    return;
+  }
+
   const chunks = await hybridSearch(query, collectionId, topK);
 
-  // ── 2. Build context ──────────────────────────────────────────────────────
+  // Prompting a model with zero sources reliably produces a hallucination and
+  // always costs money. Answer from the retrieval result instead.
+  if (chunks.length === 0) {
+    yield* replay(NO_CONTEXT_ANSWER);
+    yield { type: "citation", payload: { chunks: [] } };
+    yield {
+      type: "meta",
+      meta: {
+        latency_ms: Date.now() - startedAt,
+        retrieved_chunk_ids: [],
+        cache_hit: "none",
+      },
+    };
+    await writeQueryLog(query, collectionId, [], NO_CONTEXT_ANSWER, Date.now() - startedAt, "none");
+    return;
+  }
+
   const { prompt, chunkMap } = buildContext(query, chunks);
 
-  // ── 3. Stream from OpenRouter ─────────────────────────────────────────────
   const stream = await llm.chat.completions.create({
-    model:    config.openRouterModel,
+    model: config.openRouterModel,
     messages: [{ role: "user", content: prompt }],
-    stream:   true,
+    stream: true,
   });
 
-  let fullAnswer = "";
+  let answer = "";
 
-  for await (const chunk of stream) {
-    const token = chunk.choices[0]?.delta?.content ?? "";
+  for await (const part of stream) {
+    const token = part.choices[0]?.delta?.content ?? "";
     if (token) {
-      fullAnswer += token;
+      answer += token;
       yield { type: "token", token };
     }
   }
 
-  // ── 4. Citations ──────────────────────────────────────────────────────────
-  const citedSourceIds = extractCitedSources(fullAnswer);
-  const citations      = buildCitationPayload(citedSourceIds, chunkMap);
+  const citations = buildCitationPayload(extractCitedSources(answer), chunkMap);
   yield { type: "citation", payload: citations };
 
-  // ── 5. Meta ───────────────────────────────────────────────────────────────
-  const chunkIds  = chunks.map((c) => c.chunk_id);
-  const latencyMs = Date.now() - startTime;
-
+  const chunkIds = chunks.map((chunk) => chunk.chunk_id);
   const meta: QueryMetadata = {
-    latency_ms:          latencyMs,
+    latency_ms: Date.now() - startedAt,
     retrieved_chunk_ids: chunkIds,
-    cache_hit:           "none",
+    cache_hit: "none",
   };
   yield { type: "meta", meta };
 
-  // ── 6. Cache the full result for future identical queries ─────────────────
-  try {
-    const queryCacheKey = CacheKeys.query(query, collectionId);
-    await redis.set(
-      queryCacheKey,
-      JSON.stringify({ answer: fullAnswer, citations, meta }),
-      { EX: config.cacheTtlQuery },
-    );
-  } catch {
-    // Cache write failed — not fatal
-  }
-
-  // ── 7. Write query log ────────────────────────────────────────────────────
-  writeQueryLog(query, collectionId, chunkIds, fullAnswer, latencyMs, "none");
+  // Awaited, not fire-and-forget: a serverless instance is frozen the moment
+  // the response ends, which silently drops any still-pending promise.
+  await writeCachedAnswer(cacheKey, { answer, citations, meta });
+  await writeQueryLog(query, collectionId, chunkIds, answer, meta.latency_ms, "none");
 }

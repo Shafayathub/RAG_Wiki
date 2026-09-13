@@ -1,143 +1,199 @@
-import fs from "fs";
-import path from "path";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { PDFParse } from "pdf-parse";
 import { marked } from "marked";
-import { encoding_for_model } from "tiktoken";
-import { RawChunk } from "../types";
+import { getEncoding, type Tiktoken } from "js-tiktoken";
+import { AppError, type RawChunk } from "../types";
 import { config } from "../config/env";
 
-// tiktoken encoder for text-embedding-3-small (same vocabulary as gpt-4o)
-const encoder = encoding_for_model("gpt-4o");
+/**
+ * js-tiktoken over the WASM `tiktoken` build: the WASM module needs a manual
+ * `free()` to avoid leaking across serverless invocations, and bundling it
+ * into a Vercel function is fragile. Pure JS costs a little speed and removes
+ * both problems.
+ */
+let encoder: Tiktoken | null = null;
 
-function countTokens(text: string): number {
-  return encoder.encode(text).length;
+function tokenizer(): Tiktoken {
+  encoder ??= getEncoding("o200k_base");
+  return encoder;
+}
+
+export function countTokens(text: string): number {
+  return tokenizer().encode(text).length;
+}
+
+interface Piece {
+  text: string;
+  tokens: number;
+}
+
+/** Ordered coarse → fine. The empty string is the hard-cut fallback. */
+const SEPARATORS = ["\n\n", "\n", ". ", " ", ""] as const;
+
+/**
+ * Last resort for a run of text with no separator left to split on (a long
+ * URL, a table row, CJK prose). Cutting on token boundaries guarantees every
+ * piece fits the budget, which no character heuristic can promise.
+ */
+function hardSplit(text: string, limit: number): Piece[] {
+  const enc = tokenizer();
+  const tokens = enc.encode(text);
+  const pieces: Piece[] = [];
+
+  for (let i = 0; i < tokens.length; i += limit) {
+    const slice = tokens.slice(i, i + limit);
+    pieces.push({ text: enc.decode(slice), tokens: slice.length });
+  }
+
+  return pieces;
 }
 
 /**
- * Split text into overlapping chunks of at most `chunkSize` tokens.
- * Uses recursive character splitting — tries to break on paragraphs,
- * then sentences, then words before hard-cutting. This keeps semantic
- * units together far better than naive character slicing.
+ * Recursive character splitting: break on paragraphs first, then lines,
+ * sentences and words, so a chunk boundary lands where a human would put one.
+ *
+ * Each piece keeps the separator that followed it, which means concatenating
+ * pieces reproduces the source text byte for byte. Rejoining with a separator
+ * of our own choosing would both corrupt the text and inflate its token count,
+ * because a token count is not additive across an arbitrary join.
+ *
+ * Token counts are computed once per piece and summed while packing, rather
+ * than re-encoding a growing candidate on every step — that is the difference
+ * between quadratic and linear work on a long page.
  */
-function splitIntoChunks(
-  text: string,
-  pageNumber: number | null = null,
-): RawChunk[] {
+function splitIntoPieces(text: string, separatorIndex = 0): Piece[] {
+  const { chunkSize } = config;
+  if (text.length === 0) return [];
+
+  const tokens = countTokens(text);
+  if (tokens <= chunkSize) return [{ text, tokens }];
+
+  const separator = SEPARATORS[separatorIndex];
+  if (separator === undefined || separator === "") return hardSplit(text, chunkSize);
+
+  const parts = text.split(separator);
+  const pieces: Piece[] = [];
+
+  parts.forEach((part, index) => {
+    const withSeparator = index < parts.length - 1 ? part + separator : part;
+    if (withSeparator.length === 0) return;
+
+    // A run of pure whitespace carries no content but does carry formatting.
+    // Fold it into the previous piece instead of emitting a contentless one.
+    if (withSeparator.trim().length === 0) {
+      const previous = pieces[pieces.length - 1];
+      if (previous) {
+        previous.text += withSeparator;
+        previous.tokens = countTokens(previous.text);
+      }
+      return;
+    }
+
+    pieces.push(...splitIntoPieces(withSeparator, separatorIndex + 1));
+  });
+
+  return pieces;
+}
+
+/**
+ * Pack pieces into chunks up to `chunkSize` tokens, then step back far enough
+ * to repeat roughly `chunkOverlap` tokens at the start of the next chunk.
+ * The overlap is what stops a fact that straddles a boundary from becoming
+ * unretrievable in both neighbours.
+ */
+function packIntoChunks(pieces: Piece[], pageNumber: number | null): RawChunk[] {
   const { chunkSize, chunkOverlap } = config;
-  const separators = ["\n\n", "\n", ". ", " ", ""];
   const chunks: RawChunk[] = [];
 
-  function split(str: string, separatorIndex: number): string[] {
-    if (separatorIndex >= separators.length) return [str];
-
-    const sep = separators[separatorIndex]!;
-    const parts = sep ? str.split(sep) : [str];
-    const results: string[] = [];
-    let current = "";
-
-    for (const part of parts) {
-      const candidate = current ? `${current}${sep}${part}` : part;
-      if (countTokens(candidate) <= chunkSize) {
-        current = candidate;
-      } else {
-        if (current) results.push(current);
-        // Part itself is too big — recurse with next separator
-        if (countTokens(part) > chunkSize) {
-          results.push(...split(part, separatorIndex + 1));
-          current = "";
-        } else {
-          current = part;
-        }
-      }
-    }
-
-    if (current) results.push(current);
-    return results;
-  }
-
-  const rawPieces = split(text.trim(), 0);
-
-  // Apply overlap: each chunk starts `chunkOverlap` tokens before
-  // the previous chunk ended so context isn't lost at boundaries.
+  let start = 0;
   let chunkIndex = 0;
-  let i = 0;
 
-  while (i < rawPieces.length) {
-    let content = rawPieces[i]!;
-    let tokenCount = countTokens(content);
+  while (start < pieces.length) {
+    let end = start;
+    let budget = 0;
 
-    // Grow the chunk by appending pieces until we hit the size limit
-    let j = i + 1;
-    while (j < rawPieces.length) {
-      const next = rawPieces[j]!;
-      const added = countTokens(next);
-      if (tokenCount + added > chunkSize) break;
-      content += "\n\n" + next;
-      tokenCount += added;
-      j++;
+    while (end < pieces.length) {
+      const next = pieces[end]!;
+      // `end === start` forces at least one piece in, even if it is oversized,
+      // so the loop can never stall.
+      if (end > start && budget + next.tokens > chunkSize) break;
+      budget += next.tokens;
+      end++;
     }
 
-    chunks.push({
-      content: content.trim(),
-      chunk_index: chunkIndex++,
-      page_number: pageNumber,
-      token_count: tokenCount,
-    });
+    const content = pieces
+      .slice(start, end)
+      .map((piece) => piece.text)
+      .join("")
+      .trim();
 
-    // Move back by overlap amount so the next chunk shares context
-    const overlapTokenTarget = chunkOverlap;
-    let overlapTokens = 0;
-    let backtrack = j - 1;
-
-    while (backtrack > i && overlapTokens < overlapTokenTarget) {
-      overlapTokens += countTokens(rawPieces[backtrack]!);
-      backtrack--;
+    if (content.length > 0) {
+      chunks.push({
+        content,
+        chunk_index: chunkIndex++,
+        page_number: pageNumber,
+        // Re-encode the assembled chunk: the summed estimate drives packing,
+        // but what gets stored has to be the real count.
+        token_count: countTokens(content),
+      });
     }
 
-    i = Math.max(i + 1, backtrack + 1);
+    if (end >= pieces.length) break;
+
+    let rewind = end;
+    let overlap = 0;
+    // Stop at start + 1 so the window always advances by at least one piece.
+    while (rewind > start + 1 && overlap + pieces[rewind - 1]!.tokens <= chunkOverlap) {
+      rewind--;
+      overlap += pieces[rewind]!.tokens;
+    }
+
+    start = rewind;
   }
 
   return chunks;
 }
 
-/**
- * Parse a PDF and return chunks per page.
- * Chunking per-page means page_number metadata is accurate —
- * crucial for citations pointing to exact source pages.
- */
-async function chunkPdf(filePath: string): Promise<RawChunk[]> {
-  const buffer = fs.readFileSync(filePath);
-  const parser = new PDFParse({ data: buffer });
-  const result = await parser.getText();
-  await parser.destroy();
-
-  // pdf-parse gives us all text merged — we re-split on form-feed
-  // characters (\f) which most PDFs use as page separators.
-  const pages = result.text.split("\f").filter((p: any) => p.trim().length > 0);
-
-  const allChunks: RawChunk[] = [];
-  let globalIndex = 0;
-
-  for (let pageNum = 0; pageNum < pages.length; pageNum++) {
-    const pageChunks = splitIntoChunks(pages[pageNum]!, pageNum + 1);
-    for (const chunk of pageChunks) {
-      allChunks.push({ ...chunk, chunk_index: globalIndex++ });
-    }
-  }
-
-  return allChunks;
+export function splitText(text: string, pageNumber: number | null = null): RawChunk[] {
+  return packIntoChunks(splitIntoPieces(text.trim()), pageNumber);
 }
 
 /**
- * Parse Markdown: strip HTML tags from the rendered output,
- * then chunk as plain text. No page numbers for markdown.
+ * Chunk per page so `page_number` stays accurate — a citation that names the
+ * wrong page is worse than no citation at all.
  */
+async function chunkPdf(filePath: string): Promise<RawChunk[]> {
+  const parser = new PDFParse({ data: await readFile(filePath) });
+
+  let text: string;
+  try {
+    ({ text } = await parser.getText());
+  } finally {
+    await parser.destroy();
+  }
+
+  // Most producers emit a form feed between pages; if none is present the
+  // document is treated as a single page rather than mis-numbered.
+  const pages = text.split("\f").filter((page) => page.trim().length > 0);
+
+  const chunks: RawChunk[] = [];
+  let globalIndex = 0;
+
+  pages.forEach((page, offset) => {
+    for (const chunk of splitText(page, offset + 1)) {
+      chunks.push({ ...chunk, chunk_index: globalIndex++ });
+    }
+  });
+
+  return chunks;
+}
+
 async function chunkMarkdown(filePath: string): Promise<RawChunk[]> {
-  const raw = fs.readFileSync(filePath, "utf-8");
+  const raw = await readFile(filePath, "utf-8");
   const html = await marked(raw);
-  // Strip HTML tags — we want plain text for embedding
   const plainText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  return splitIntoChunks(plainText, null);
+  return splitText(plainText, null);
 }
 
 export async function chunkFile(
@@ -146,13 +202,10 @@ export async function chunkFile(
 ): Promise<RawChunk[]> {
   const ext = path.extname(filePath).toLowerCase();
 
-  if (fileType === "pdf" || ext === ".pdf") {
-    return chunkPdf(filePath);
-  }
-
+  if (fileType === "pdf" || ext === ".pdf") return chunkPdf(filePath);
   if (fileType === "markdown" || ext === ".md" || ext === ".markdown") {
     return chunkMarkdown(filePath);
   }
 
-  throw new Error(`Unsupported file type: ${ext}`);
+  throw new AppError(400, `Unsupported file type: ${ext}`, "UNSUPPORTED_FILE_TYPE");
 }

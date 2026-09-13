@@ -1,24 +1,30 @@
 {
-  "name": "backend",
+  "name": "@rag-wiki/backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "description": "RAG Wiki API — ingestion, hybrid retrieval and streamed answer generation.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "dist/server.js",
   "scripts": {
     "dev": "tsx --watch ./src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "migrate": "tsx src/config/migrate.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "seed": "tsx src/scripts/seed.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@10.33.0",
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.1",
     "helmet": "^8.1.0",
+    "js-tiktoken": "^1.0.21",
     "marked": "^18.0.3",
     "multer": "^2.1.1",
     "openai": "^6.38.0",
@@ -26,18 +32,22 @@
     "pg": "^8.20.0",
     "rate-limit-redis": "^5.0.0",
     "redis": "^5.12.1",
-    "tiktoken": "^1.0.22",
-    "uuid": "^14.0.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.1.0",
     "@types/node": "^25.7.0",
-    "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.20.0",
+    "@types/supertest": "^6.0.3",
+    "@vitest/coverage-v8": "^5.0.0",
+    "eslint": "^10.3.0",
+    "supertest": "^7.1.4",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.2",
+    "vitest": "^5.0.0"
   }
 }
