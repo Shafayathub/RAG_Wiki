@@ -1,17 +1,20 @@
-import { Request, Response } from "express";
+import type { Request, RequestHandler, Response } from "express";
 import rateLimit from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import { redis } from "../config/redis";
-import { config } from "../config/env";
+import { config } from "./../config/env";
 
-export const ipRateLimiter = rateLimit({
+const limiter = rateLimit({
   windowMs: config.rateLimitWindowMs,
-  max: config.rateLimitMaxRequests,
+  limit: config.rateLimitMaxRequests,
   standardHeaders: "draft-7",
   legacyHeaders: false,
 
+  // Shared across serverless instances — an in-memory store would reset on
+  // every cold start and enforce nothing.
   store: new RedisStore({
-    sendCommand: (...args: string[]) => redis.sendCommand(args) as Promise<any>,
+    prefix: "rl:",
+    sendCommand: (...args: string[]) => redis.sendCommand(args),
   }),
 
   handler: (_req: Request, res: Response) => {
@@ -21,3 +24,18 @@ export const ipRateLimiter = rateLimit({
     });
   },
 });
+
+/**
+ * Fail open. A Redis outage should slow nobody down — the LLM cost limiter is
+ * the budget guard that actually matters, and it makes the same trade.
+ */
+export const ipRateLimiter: RequestHandler = (req, res, next) => {
+  limiter(req, res, (err?: unknown) => {
+    if (err) {
+      req.log.warn("Rate limiter unavailable — allowing request", {
+        message: err instanceof Error ? err.message : "unknown error",
+      });
+    }
+    next();
+  });
+};

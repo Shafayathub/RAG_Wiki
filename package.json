@@ -1,0 +1,35 @@
+{
+  "name": "rag-wiki",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-grade RAG research assistant: hybrid retrieval over your own documents with streamed, citation-backed answers.",
+  "license": "MIT",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./backend\" --filter \"./frontend\" dev",
+    "dev:backend": "pnpm --filter @rag-wiki/backend dev",
+    "dev:frontend": "pnpm --filter @rag-wiki/frontend dev",
+    "build": "pnpm --filter @rag-wiki/backend build && pnpm --filter @rag-wiki/frontend build",
+    "build:web": "pnpm --filter @rag-wiki/frontend build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && pnpm --recursive typecheck",
+    "lint": "pnpm --recursive lint",
+    "test": "pnpm --recursive test",
+    "test:coverage": "pnpm --recursive test:coverage",
+    "migrate": "pnpm --filter @rag-wiki/backend migrate",
+    "seed": "pnpm --filter @rag-wiki/backend seed",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "@vercel/node": "^5.3.24",
+    "typescript": "^6.0.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

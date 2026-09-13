@@ -1,0 +1,11 @@
+# Excluded from the deployment upload only. Nothing here is needed to build the
+# web bundle or to run the serverless function.
+#
+# Test files are deliberately NOT excluded: the build runs `tsc -b`, whose
+# project references include tsconfig.test.json, so removing them breaks the
+# build rather than slimming it.
+
+.github/
+docs/
+coverage/
+*.log

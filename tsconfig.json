@@ -1,0 +1,12 @@
+{
+  "extends": "./backend/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false
+  },
+  // The Express Request augmentation is a global .d.ts, not an imported
+  // module, so it has to be named explicitly to enter this program.
+  "include": ["api/**/*", "backend/src/types/express.d.ts"]
+}

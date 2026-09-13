@@ -1,93 +1,77 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repository.
 
-## Development Commands
+## Layout
 
-**Installation:**
+pnpm workspace with two packages plus a deployment shim:
+
+- `backend/` — Express 5 API (`@rag-wiki/backend`)
+- `frontend/` — React 19 + Vite SPA (`@rag-wiki/frontend`)
+- `api/index.ts` — Vercel serverless entry point; re-exports the Express app
+
+Run every command from the repository root unless noted.
+
+## Commands
+
 ```bash
-pnpm install
+pnpm install          # install the whole workspace
+pnpm dev              # API on :5000 and web on :5173, both watching
+pnpm verify           # typecheck + lint + test + build (the CI gate)
+pnpm test             # both suites
+pnpm test:coverage    # both suites with coverage
+pnpm typecheck        # api shim, backend and frontend
+pnpm lint             # both packages
+pnpm build            # compile the API, build the web bundle
+pnpm migrate          # apply pending SQL migrations
+pnpm seed             # load the demo collection (safe to re-run)
 ```
 
-**Development Server:**
-```bash
-pnpm dev
-# Runs tsx --watch ./src/server.ts with automatic restart on file changes
-```
+Run `pnpm verify` before declaring work finished. It is exactly what CI runs.
 
-**Production Build:**
-```bash
-pnpm start
-# Runs node dist/server.js after TypeScript compilation
-```
+## Environment
 
-**Database Migrations:**
-```bash
-pnpm migrate
-# Runs tsx src/config/migrate.ts to apply SQL migrations
-```
+Copy `.env.example` to `backend/.env`. Every variable is validated by Zod in
+`backend/src/config/env.ts`, which throws a named error at startup on anything
+missing or malformed, so add new configuration there rather than reading
+`process.env` directly elsewhere.
 
-**Environment Setup:**
-Copy `.env.example` to `.env` and configure:
-- Database connection (POSTGRES_URL)
-- Redis connection (REDIS_URL)
-- OpenAI API key (OPENAI_API_KEY)
-- Port configuration (PORT, default 3000)
-- Node environment (NODE_ENV, development/production)
+Two values are easy to get wrong:
 
-## Project Architecture
+- `DATABASE_URL` must be the **pooled** Postgres string on serverless.
+- `REDIS_URL` must be the **RESP** URL (`rediss://`), not the Upstash REST URL.
 
-**High-Level Structure:**
-- `src/app.ts` - Express application setup with middleware (helmet, cors, body parsing)
-- `src/server.ts` - Application entry point with database/redis connection checks
-- `src/config/` - Configuration files for environment, database, Redis, and OpenAI
-- `src/middleware/` - Custom middleware (error handling, rate limiting, LLM limiting)
-- `src/modules/` - Feature modules organized by domain:
-  - `collections/` - Manage document collections
-  - `ingest/` - Document upload and processing pipeline (Phase 2 planned)
-  - `query/` - Query processing with retrieval and LLM streaming (Phase 6 planned)
-- `src/types/` - Shared TypeScript interfaces and types
-- `src/utils/` - Utility functions
+## Conventions
 
-**Data Flow:**
-1. HTTP requests enter through Express routes in module controllers
-2. Controllers delegate to service layers for business logic
-3. Services interact with database (PostgreSQL via pg) and external APIs (OpenAI)
-4. Redis used for caching and rate limiting
-5. Document processing pipeline planned for file ingestion (multer + pdf-parse)
+- **Validation at the boundary.** Every request body and route param goes
+  through a Zod schema in the module `.schema.ts` file. Controllers call
+  `safeParse` and hand the error to `next`.
+- **Errors.** Throw `AppError(status, message, code)` from `utils/AppError`.
+  There is exactly one `AppError` class; `types/index.ts` re-exports it so both
+  import paths resolve to the same constructor, which `instanceof` depends on.
+- **Logging.** Use `req.log` inside a request and the module `logger`
+  elsewhere. Never `console.log`.
+- **Caching is best-effort.** Wrap every Redis read and write so a failure
+  degrades to a miss. Rate limiters fail open.
+- **Serverless.** Await anything that must happen before the response ends; an
+  instance freezes immediately afterwards and drops pending promises.
+- **Comments explain why, not what.** The code says what it does.
 
-**Key Technologies:**
-- Runtime: Node.js with TypeScript (tsx for development)
-- Framework: Express.js
-- Database: PostgreSQL with node-postgres (pg)
-- Caching/Queue: Redis
-- AI Integration: OpenAI API (tiktoken for token counting)
-- Validation: Zod for request schema validation
-- File Handling: Multer for multipart/form-data
-- Markdown Processing: Marked library
-- Rate Limiting: express-rate-limit with Redis store
-- Security: Helmet.js, CORS configuration
+## Testing
 
-**Current Implementation Status:**
-- Phase 1: Basic server setup with health check endpoint ✓
-- Phase 2: Ingestion pipeline implemented ✓
-- Phase 3: Hybrid retrieval pipeline implemented ✓
-- Phase 4: Query pipeline with LLM streaming implemented ✓
-- Phase 5: Not yet implemented
-- Phase 6: Query pipeline optimization and enhancements (planned)
-- Phases 7+: Future enhancements
+Vitest in both packages, 100 tests. Backend env for tests is declared in
+`backend/vitest.config.ts` (not a setup file) so it exists before module-level
+validation runs. Mock `config/db` and `config/redis` with `vi.hoisted` when a
+test boots the Express app.
 
-**Database Schema:**
-See `backend/migrations/001_init.sql` for initial tables including:
-- collections table for storing collection metadata
-- documents table for ingested files
-- Future tables planned for embeddings, chunks, etc.
+Frontend tests use jsdom and Testing Library, and are typechecked by
+`frontend/tsconfig.test.json` so the production build never compiles them.
 
-**Environment Variables:**
-Required variables (see `.env.example`):
-- `POSTGRES_URL` - PostgreSQL connection string
-- `REDIS_URL` - Redis connection string  
-- `OPENAI_API_KEY` - OpenAI API key for LLM embeddings/completions
-- `FRONTEND_URL` - CORS origin for production
-- `PORT` - Server port (default: 3000)
-- `NODE_ENV` - Environment (development/production)
+## Documentation
+
+- `docs/ARCHITECTURE.md` — design decisions and their rationale
+- `docs/API.md` — endpoint and SSE event reference
+- `docs/DEPLOYMENT.md` — Vercel, Neon and Upstash setup
+- `docs/phases/` — historical build notes, not current design
+
+Keep these in sync when behaviour changes.

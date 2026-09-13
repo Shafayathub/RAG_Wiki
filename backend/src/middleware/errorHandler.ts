@@ -1,20 +1,26 @@
-import { Request, Response, NextFunction, ErrorRequestHandler } from "express";
+import type { ErrorRequestHandler, Request, Response } from "express";
 import { ZodError } from "zod";
-import { AppError } from "../types";
+import { AppError } from "../utils/AppError";
 import { config } from "../config/env";
 
 export const errorHandler: ErrorRequestHandler = (
   err: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
-  _next: NextFunction,
+  // Express identifies error middleware by arity: the fourth parameter has
+  // to stay even though nothing calls it.
+  _next,
 ): void => {
+  if (res.headersSent) return;
+
   if (err instanceof ZodError) {
     res.status(400).json({
       error: "Validation error",
-      details: err.issues.map((i) => ({
-        field: i.path.join("."),
-        message: i.message,
+      code: "VALIDATION_ERROR",
+      request_id: req.id,
+      details: err.issues.map((issue) => ({
+        field: issue.path.join("."),
+        message: issue.message,
       })),
     });
     return;
@@ -24,16 +30,21 @@ export const errorHandler: ErrorRequestHandler = (
     res.status(err.statusCode).json({
       error: err.message,
       code: err.code,
+      request_id: req.id,
     });
     return;
   }
 
-  console.error("Unhandled error:", err);
+  req.log.error("Unhandled error", err);
 
+  // Never echo an unexpected error's message: it can carry upstream API
+  // payloads, connection strings or file paths.
   res.status(500).json({
     error: "Internal server error",
-    ...(config.nodeEnv === "development" && err instanceof Error
-      ? { stack: err.stack }
-      : {}),
+    code: "INTERNAL_ERROR",
+    request_id: req.id,
+    ...(config.isProduction || !(err instanceof Error)
+      ? {}
+      : { detail: err.message }),
   });
 };

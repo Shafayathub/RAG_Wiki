@@ -1,96 +1,133 @@
 import { llm } from "../config/openrouter";
 import { redis, CacheKeys } from "../config/redis";
 import { config } from "../config/env";
-import { RawChunk, EmbeddedChunk, AppError } from "../types";
+import { logger } from "./logger";
+import { AppError, type EmbeddedChunk, type RawChunk } from "../types";
 
 /**
- * Embed a single piece of text.
- * Checks the embedding cache first — a cache hit costs $0.
- * Cache miss calls OpenRouter → stores result for 24 hours.
+ * One embedding request carries many inputs. Twenty keeps each request well
+ * under the provider's per-request token ceiling while collapsing what used to
+ * be twenty round trips into one.
  */
-async function embedText(text: string): Promise<number[]> {
-    const cacheKey = CacheKeys.embedding(text);
+const BATCH_SIZE = 20;
 
-    // ── Cache check ───────────────────────────────────────────────────────────
-    try {
-        const cached = await redis.get(cacheKey);
-        if (cached) {
-            const parsed: number[] = JSON.parse(cached);
-            // Old cache entries may have more dims than the current config
-            return parsed.length > config.embedDimensions
-                ? parsed.slice(0, config.embedDimensions)
-                : parsed;
-        }
-    } catch {
-        // Redis down — skip cache, call API directly
-    }
+/**
+ * Some providers (notably the Nvidia models on OpenRouter) ignore the
+ * `dimensions` parameter and always return their native width. pgvector's HNSW
+ * index caps at 2000, and the column is fixed, so every vector is normalised to
+ * the configured width before it can reach the database or the cache.
+ */
+function fitToDimensions(embedding: number[]): number[] {
+  return embedding.length > config.embedDimensions
+    ? embedding.slice(0, config.embedDimensions)
+    : embedding;
+}
 
-    // ── OpenRouter embedding call ─────────────────────────────────────────────
-    try {
-        const response = await llm.embeddings.create({
-            model: config.openRouterEmbedModel,
-            input: text,
-            dimensions: config.embedDimensions,
-            encoding_format: "float",
+async function readCached(texts: string[]): Promise<Map<string, number[]>> {
+  const hits = new Map<string, number[]>();
+  if (texts.length === 0) return hits;
+
+  try {
+    const keys = texts.map((text) => CacheKeys.embedding(text));
+    const values = await redis.mGet(keys);
+
+    values.forEach((value, index) => {
+      if (!value) return;
+      try {
+        hits.set(texts[index]!, fitToDimensions(JSON.parse(value) as number[]));
+      } catch {
+        // A corrupt entry is simply a miss.
+      }
+    });
+  } catch {
+    // Redis down — every text is a miss.
+  }
+
+  return hits;
+}
+
+async function writeCached(entries: Array<[string, number[]]>): Promise<void> {
+  await Promise.all(
+    entries.map(async ([text, embedding]) => {
+      try {
+        await redis.set(CacheKeys.embedding(text), JSON.stringify(embedding), {
+          EX: config.cacheTtlEmbedding,
         });
+      } catch {
+        // Cache writes are best-effort.
+      }
+    }),
+  );
+}
 
-        const rawEmbedding = response?.data?.[0]?.embedding;
+async function requestEmbeddings(inputs: string[]): Promise<number[][]> {
+  try {
+    const response = await llm.embeddings.create({
+      model: config.openRouterEmbedModel,
+      input: inputs,
+      dimensions: config.embedDimensions,
+      encoding_format: "float",
+    });
 
-        if (!rawEmbedding) {
-            throw new AppError(500, `No embedding returned from OpenRouter. Response: ${JSON.stringify(response)}`, "EMBEDDING_FAILED");
-        }
+    const ordered: number[][] = new Array<number[]>(inputs.length);
 
-        // Nvidia models ignore the `dimensions` param and always return
-        // their native size (2048). Truncate to configured dimensions so
-        // it fits the pgvector column (max 2000 for HNSW indexes).
-        const embedding = rawEmbedding.length > config.embedDimensions
-            ? rawEmbedding.slice(0, config.embedDimensions)
-            : rawEmbedding;
-
-        // ── Store in cache ────────────────────────────────────────────────────────
-        try {
-            await redis.set(cacheKey, JSON.stringify(embedding), { EX: config.cacheTtlEmbedding });
-        } catch {
-            // Cache write failed — not fatal, continue
-        }
-
-        return embedding;
-    } catch (error: any) {
-        if (error instanceof AppError) throw error;
-        throw new AppError(500, `OpenRouter API error during embedding: ${error.message || "Unknown error"}`, "API_ERROR");
+    // Providers are permitted to return results out of order, so index by the
+    // response's own `index` field rather than by array position.
+    for (const item of response.data ?? []) {
+      if (item.index >= 0 && item.index < inputs.length) {
+        ordered[item.index] = fitToDimensions(item.embedding);
+      }
     }
+
+    if (ordered.some((embedding) => embedding === undefined)) {
+      throw new AppError(
+        502,
+        "Embedding provider returned fewer vectors than inputs.",
+        "EMBEDDING_FAILED",
+      );
+    }
+
+    return ordered;
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+
+    logger.error("Embedding request failed", err, { inputs: inputs.length });
+    throw new AppError(502, "Embedding provider is unavailable.", "EMBEDDING_PROVIDER_ERROR");
+  }
 }
 
 /**
- * Embed all chunks in batches of 20.
- *
- * Why batching?
- * OpenRouter (and OpenAI) have per-request token limits.
- * Sending 200 chunks at once risks hitting those limits.
- * Batches of 20 stay well under the ceiling while being
- * far faster than one-at-a-time sequential calls.
+ * Embeds many texts, reading through a shared cache. Used for both ingestion
+ * and query embedding so a question that matches an ingested chunk verbatim
+ * costs nothing, and so both paths normalise dimensions identically.
  */
+export async function embedTexts(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) return [];
+
+  const cached = await readCached(texts);
+  const missing = [...new Set(texts.filter((text) => !cached.has(text)))];
+
+  for (let i = 0; i < missing.length; i += BATCH_SIZE) {
+    const batch = missing.slice(i, i + BATCH_SIZE);
+    const embeddings = await requestEmbeddings(batch);
+
+    const fresh = batch.map(
+      (text, index) => [text, embeddings[index]!] as [string, number[]],
+    );
+
+    for (const [text, embedding] of fresh) cached.set(text, embedding);
+    await writeCached(fresh);
+  }
+
+  return texts.map((text) => cached.get(text)!);
+}
+
+export async function embedText(text: string): Promise<number[]> {
+  const [embedding] = await embedTexts([text]);
+  return embedding!;
+}
+
 export async function embedChunks(chunks: RawChunk[]): Promise<EmbeddedChunk[]> {
-    const BATCH_SIZE = 20;
-    const embedded: EmbeddedChunk[] = [];
-
-    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-        const batch = chunks.slice(i, i + BATCH_SIZE);
-
-        const batchResults = await Promise.all(
-            batch.map(async (chunk): Promise<EmbeddedChunk> => {
-                const embedding = await embedText(chunk.content);
-                return { ...chunk, embedding };
-            }),
-        );
-
-        embedded.push(...batchResults);
-
-        // Small delay between batches to respect rate limits
-        if (i + BATCH_SIZE < chunks.length) {
-            await new Promise((r) => setTimeout(r, 200));
-        }
-    }
-
-    return embedded;
+  const embeddings = await embedTexts(chunks.map((chunk) => chunk.content));
+  return chunks.map((chunk, index) => ({ ...chunk, embedding: embeddings[index]! }));
 }
