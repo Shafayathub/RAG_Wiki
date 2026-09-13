@@ -52,14 +52,16 @@ Two values are easy to get wrong:
 - **Logging.** Use `req.log` inside a request and the module `logger`
   elsewhere. Never `console.log`.
 - **Caching is best-effort.** Wrap every Redis read and write so a failure
-  degrades to a miss. Rate limiters fail open.
+  degrades to a miss. The general rate limiter fails open; the budget limiters
+  in `middleware/llmLimiter.ts` fall back to an in-process counter instead,
+  because the endpoints they guard spend money.
 - **Serverless.** Await anything that must happen before the response ends; an
   instance freezes immediately afterwards and drops pending promises.
 - **Comments explain why, not what.** The code says what it does.
 
 ## Testing
 
-Vitest in both packages, 100 tests. Backend env for tests is declared in
+Vitest in both packages, 110 tests. Backend env for tests is declared in
 `backend/vitest.config.ts` (not a setup file) so it exists before module-level
 validation runs. Mock `config/db` and `config/redis` with `vi.hoisted` when a
 test boots the Express app.

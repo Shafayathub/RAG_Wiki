@@ -110,7 +110,7 @@ export function fuseWithRRF(
       chunk_index: row.chunk_index,
       rrf_score: 1 / (RRF_K + index + 1),
       vector_score: row.vector_score,
-      fts_rank: 0,
+      fts_rank: null,
     });
   });
 
@@ -132,7 +132,7 @@ export function fuseWithRRF(
       page_number: row.page_number,
       chunk_index: row.chunk_index,
       rrf_score: rrfScore,
-      vector_score: 0,
+      vector_score: null,
       fts_rank: row.fts_rank,
     });
   });

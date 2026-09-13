@@ -31,6 +31,9 @@ vi.mock("./config/redis", async (importOriginal) => {
       incr: vi.fn().mockResolvedValue(1),
       expire: vi.fn().mockResolvedValue(true),
       ttl: vi.fn().mockResolvedValue(60),
+      // The cost limiters consume their budget with a Lua script so the
+      // increment and its TTL cannot come apart.
+      eval: vi.fn().mockResolvedValue([1, 60]),
       // Rejecting exercises the fail-open path in the rate limiter.
       sendCommand: vi.fn().mockRejectedValue(new Error("redis offline")),
       on: vi.fn(),

@@ -6,16 +6,45 @@ interface Props {
   onClose: () => void;
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export function CitationDrawer({ chunks, onClose }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Move focus into the panel on open and close it on Escape, so the drawer is
-  // operable without a pointer.
+  // Move focus into the panel on open, close it on Escape, and keep Tab inside
+  // it. The trap is what makes aria-modal honest: above the `sm` breakpoint
+  // there is no backdrop, so without it Tab reaches the "View sources" buttons
+  // sitting visually underneath the panel.
   useEffect(() => {
     closeButtonRef.current?.focus();
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const panel = panelRef.current;
+      if (!panel) return;
+
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+
+      const active = document.activeElement;
+
+      if (event.shiftKey && (active === first || !panel.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
     document.addEventListener("keydown", onKeyDown);
@@ -24,6 +53,7 @@ export function CitationDrawer({ chunks, onClose }: Props) {
 
   return (
     <div
+      ref={panelRef}
       role="dialog"
       aria-modal="true"
       aria-label={`Sources, ${chunks.length} cited`}

@@ -3,8 +3,31 @@ import fs from "fs";
 import { pool } from "../../config/db";
 import { chunkFile } from "../../utils/chunker";
 import { embedChunks } from "../../utils/embedder";
+import { config } from "../../config/env";
 import { IngestResponse, EmbeddedChunk } from "../../types";
 import { AppError } from "../../types";
+
+/**
+ * Ingest upserts a collection by name, so an unprotected name is an open door
+ * into any existing collection — including the curated demo one, which has no
+ * per-document undo. Enforced only in DEMO_MODE so self-hosting is unaffected.
+ */
+function assertCollectionWritable(name: string): void {
+    if (!config.demoMode) return;
+
+    const requested = name.trim().toLowerCase();
+    const isProtected = config.protectedCollections.some(
+        (entry) => entry.trim().toLowerCase() === requested,
+    );
+
+    if (isProtected) {
+        throw new AppError(
+            403,
+            `"${name.trim()}" is a curated collection on this demo. Upload into a collection of your own instead.`,
+            "PROTECTED_COLLECTION",
+        );
+    }
+}
 
 
 /**
@@ -119,6 +142,7 @@ export async function ingestDocument(
     filePath: string,
     originalName: string,
     collectionName: string,
+    options: { allowProtected?: boolean } = {},
 ): Promise<IngestResponse> {
     const ext = path.extname(originalName).toLowerCase();
     const fileType = ext === ".pdf" ? "pdf" : "markdown";
@@ -132,6 +156,9 @@ export async function ingestDocument(
     }
 
     try {
+        // Inside the try so the rejection still runs the temp-file cleanup below.
+        if (!options.allowProtected) assertCollectionWritable(collectionName);
+
         // 1. Ensure collection exists
         const collectionId = await upsertCollection(collectionName);
 
@@ -143,6 +170,16 @@ export async function ingestDocument(
 
         if (rawChunks.length === 0) {
             throw new AppError(422, "Document produced no chunks — it may be empty.", "EMPTY_DOCUMENT");
+        }
+
+        // A file that passes the size limit can still be mostly text, and every
+        // chunk is a billed embedding. Cap the count before spending anything.
+        if (rawChunks.length > config.maxChunksPerDocument) {
+            throw new AppError(
+                413,
+                `Document produced ${rawChunks.length} chunks, above the limit of ${config.maxChunksPerDocument}. Split it into smaller files.`,
+                "DOCUMENT_TOO_LARGE",
+            );
         }
 
         // 4. Embed all chunks (with caching)

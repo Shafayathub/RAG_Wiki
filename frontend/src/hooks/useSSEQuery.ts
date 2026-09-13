@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { queryStreamUrl, toApiError } from "../api/client";
 import { createSSEParser } from "../lib/sse";
 import type {
@@ -99,7 +99,13 @@ export function useSSEQuery() {
         let flushHandle: number | null = null;
 
         const flush = () => {
-          flushHandle = null;
+          // citation/meta flush synchronously to order their patch after the
+          // tokens before it; cancelling stops the already-scheduled frame from
+          // running a second, redundant flush afterwards.
+          if (flushHandle !== null) {
+            cancelAnimationFrame(flushHandle);
+            flushHandle = null;
+          }
           if (!pending) return;
           const text = pending;
           pending = "";
@@ -151,7 +157,8 @@ export function useSSEQuery() {
             }
           }
         } finally {
-          if (flushHandle !== null) cancelAnimationFrame(flushHandle);
+          // flush() cancels any frame it did not run on, so this both drains
+          // the buffer and leaves nothing scheduled.
           flush();
         }
 
@@ -173,6 +180,10 @@ export function useSSEQuery() {
     },
     [patchMessage],
   );
+
+  // An in-flight stream keeps the model generating and keeps calling
+  // setMessages; neither should outlive the component that started it.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const clearMessages = useCallback(() => {
     stop();

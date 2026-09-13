@@ -58,6 +58,12 @@ const envSchema = z.object({
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
   LLM_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(3_600_000),
   LLM_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+  // Ingestion bills one embedding call per batch of chunks, so it needs its own
+  // budget: far fewer uploads than questions, because each costs much more.
+  INGEST_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(3_600_000),
+  INGEST_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(3),
+  /** Hard ceiling on billed embeddings per upload, whatever the file contains. */
+  MAX_CHUNKS_PER_DOCUMENT: z.coerce.number().int().positive().default(400),
 
   CACHE_TTL_QUERY: z.coerce.number().int().positive().default(3600),
   CACHE_TTL_EMBEDDING: z.coerce.number().int().positive().default(86_400),
@@ -69,6 +75,12 @@ const envSchema = z.object({
    */
   DEMO_MODE: booleanFromEnv(false),
   ADMIN_TOKEN: z.string().min(16).optional(),
+  /**
+   * Collections a public demo refuses to ingest into, comma separated. Ingest
+   * upserts by name, so without this a stranger can merge their document into
+   * the curated seed collection and there is no per-document undo.
+   */
+  PROTECTED_COLLECTIONS: csvFromEnv,
 
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).optional(),
 });
@@ -88,6 +100,12 @@ if (!parsed.success) {
 const env = parsed.data;
 
 const allowedOrigins = Array.from(new Set([env.APP_URL, ...env.CORS_ORIGINS]));
+
+/** The collection `pnpm seed` populates. Named here so it can be protected by default. */
+export const SEED_COLLECTION_NAME = "Demo — How RAG Wiki Works";
+
+const protectedCollections =
+  env.PROTECTED_COLLECTIONS.length > 0 ? env.PROTECTED_COLLECTIONS : [SEED_COLLECTION_NAME];
 
 if (env.DEMO_MODE && !env.ADMIN_TOKEN) {
   throw new Error(
@@ -122,6 +140,9 @@ export const config = {
   rateLimitMaxRequests: env.RATE_LIMIT_MAX_REQUESTS,
   llmRateLimitWindowMs: env.LLM_RATE_LIMIT_WINDOW_MS,
   llmRateLimitMax: env.LLM_RATE_LIMIT_MAX,
+  ingestRateLimitWindowMs: env.INGEST_RATE_LIMIT_WINDOW_MS,
+  ingestRateLimitMax: env.INGEST_RATE_LIMIT_MAX,
+  maxChunksPerDocument: env.MAX_CHUNKS_PER_DOCUMENT,
 
   cacheTtlQuery: env.CACHE_TTL_QUERY,
   cacheTtlEmbedding: env.CACHE_TTL_EMBEDDING,
@@ -129,6 +150,7 @@ export const config = {
 
   demoMode: env.DEMO_MODE,
   adminToken: env.ADMIN_TOKEN,
+  protectedCollections,
 } as const;
 
 export type AppConfig = typeof config;

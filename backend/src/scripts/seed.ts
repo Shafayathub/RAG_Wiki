@@ -2,12 +2,13 @@ import { copyFile, mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pool } from "../config/db";
+import { SEED_COLLECTION_NAME } from "../config/env";
 import { closeRedis, ensureRedis } from "../config/redis";
 import { ingestDocument } from "../modules/ingest/ingest.service";
 import { logger } from "../utils/logger";
 
 const SEED_DIR = path.resolve(__dirname, "../../seed");
-export const DEMO_COLLECTION = "Demo — How RAG Wiki Works";
+export const DEMO_COLLECTION = SEED_COLLECTION_NAME;
 
 /**
  * Populates the demo collection so a first-time visitor sees a working answer
@@ -41,7 +42,10 @@ async function seed(): Promise<void> {
       const copy = path.join(staging, file);
       await copyFile(path.join(SEED_DIR, file), copy);
 
-      const result = await ingestDocument(copy, file, DEMO_COLLECTION);
+      const result = await ingestDocument(copy, file, DEMO_COLLECTION, {
+        // The operator seeding the demo is exactly who the protection exists for.
+        allowProtected: true,
+      });
       logger.info("Seeded document", {
         file,
         chunks: result.total_chunks,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchCollections, toApiError } from "../api/client";
 import type { CollectionSummary } from "../types";
 
@@ -19,39 +19,38 @@ export function useCollections(): UseCollectionsResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    try {
-      setCollections(await fetchCollections());
-      setError(null);
-    } catch (err) {
-      setError(toApiError(err).message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  // Identifies the newest request rather than merely "still mounted". An
+  // upload's refresh routinely resolves before the slower first load, and a
+  // mounted-only guard would let that stale response overwrite it.
+  const latestRequest = useRef(0);
 
-  useEffect(() => {
-    // The guard drops a response that lands after unmount, and stops a slow
-    // first load from overwriting a refresh that has already succeeded.
-    let active = true;
+  const load = useCallback(() => {
+    const requestId = ++latestRequest.current;
+    const isCurrent = () => requestId === latestRequest.current;
 
-    fetchCollections()
+    return fetchCollections()
       .then((data) => {
-        if (!active) return;
+        if (!isCurrent()) return;
         setCollections(data);
         setError(null);
       })
       .catch((err: unknown) => {
-        if (active) setError(toApiError(err).message);
+        if (isCurrent()) setError(toApiError(err).message);
       })
       .finally(() => {
-        if (active) setIsLoading(false);
+        if (isCurrent()) setIsLoading(false);
       });
-
-    return () => {
-      active = false;
-    };
   }, []);
 
-  return { collections, isLoading, error, refresh };
+  useEffect(() => {
+    void load();
+
+    return () => {
+      // Nothing in flight belongs to a newer request than this one, so bumping
+      // the counter discards every pending response on unmount.
+      latestRequest.current += 1;
+    };
+  }, [load]);
+
+  return { collections, isLoading, error, refresh: load };
 }

@@ -124,7 +124,7 @@ export function UploadPanel({ onUploadSuccess }: Props) {
         <p className="text-gray-300 text-xs sm:text-sm">
           Drop a PDF or Markdown file here
         </p>
-        <p className="text-gray-500 text-xs mt-1">or select a file to browse</p>
+        <p className="text-gray-400 text-xs mt-1">or select a file to browse</p>
       </button>
 
       <input

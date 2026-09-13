@@ -67,8 +67,10 @@ export interface ScoredChunk {
   page_number: number | null;
   chunk_index: number;
   rrf_score:   number;   // final combined rank score
-  vector_score: number;  // cosine distance
-  fts_rank:    number;   // full-text search rank
+  // `null` means "this arm never scored this chunk", which is distinct from a
+  // score of 0 — for cosine distance, 0 would wrongly read as a perfect match.
+  vector_score: number | null;  // cosine distance
+  fts_rank:     number | null;  // full-text search rank
 }
 
 // ── API shapes ────────────────────────────────────────────────────────────────

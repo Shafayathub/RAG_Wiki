@@ -84,8 +84,18 @@ function splitIntoPieces(text: string, separatorIndex = 0): Piece[] {
     if (withSeparator.trim().length === 0) {
       const previous = pieces[pieces.length - 1];
       if (previous) {
-        previous.text += withSeparator;
-        previous.tokens = countTokens(previous.text);
+        const merged = previous.text + withSeparator;
+        const mergedTokens = countTokens(merged);
+
+        // Folding must not push the piece past the budget: packIntoChunks is
+        // then forced to emit it alone and oversized to make progress.
+        if (mergedTokens <= chunkSize) {
+          previous.text = merged;
+          previous.tokens = mergedTokens;
+        } else {
+          pieces.pop();
+          pieces.push(...hardSplit(merged, chunkSize));
+        }
       }
       return;
     }

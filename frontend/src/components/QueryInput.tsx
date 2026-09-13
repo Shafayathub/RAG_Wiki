@@ -106,7 +106,7 @@ export function QueryInput({
         )}
       </div>
 
-      <p className="text-[10px] text-gray-600 sm:hidden text-center">
+      <p className="text-[10px] text-gray-400 sm:hidden text-center">
         Enter to send · Shift+Enter for new line
       </p>
     </div>
