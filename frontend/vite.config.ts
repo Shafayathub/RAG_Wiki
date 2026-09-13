@@ -5,6 +5,10 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
 
+  // The whole workspace shares one .env at the repository root; without this
+  // Vite would look only in frontend/ and never see VITE_* set there.
+  envDir: "..",
+
   build: {
     // Sourcemaps make a production stack trace readable without shipping the
     // original source in the bundle itself.

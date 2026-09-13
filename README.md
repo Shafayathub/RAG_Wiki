@@ -136,7 +136,7 @@ git clone https://github.com/Shafayathub/RAG_Wiki.git
 cd RAG_Wiki
 pnpm install
 
-cp .env.example backend/.env
+cp .env.example .env
 # then fill in DATABASE_URL, REDIS_URL and OPENROUTER_API_KEY
 
 pnpm migrate   # create the schema

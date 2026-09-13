@@ -17,7 +17,7 @@ export default defineConfig({
       CHUNK_SIZE: "64",
       CHUNK_OVERLAP: "16",
       TOP_K_RESULTS: "5",
-      EMBED_DIMENSIONS: "1536",
+      EMBED_DIMENSIONS: "2000",
     },
     coverage: {
       provider: "v8",

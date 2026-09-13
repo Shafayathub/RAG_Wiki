@@ -31,7 +31,13 @@ Run `pnpm verify` before declaring work finished. It is exactly what CI runs.
 
 ## Environment
 
-Copy `.env.example` to `backend/.env`. Every variable is validated by Zod in
+One `.env` at the repository root serves both packages: copy `.env.example` to
+`.env` and fill it in. The backend resolves it by walking up from
+`config/env.ts`, not from the cwd, so it is found whether a command runs from
+the root or from `backend/`; Vite reads the same file via `envDir`. An empty
+assignment (`KEY=`) counts as unset, so a bare `ADMIN_TOKEN=` is fine.
+
+Every variable is validated by Zod in
 `backend/src/config/env.ts`, which throws a named error at startup on anything
 missing or malformed, so add new configuration there rather than reading
 `process.env` directly elsewhere.
