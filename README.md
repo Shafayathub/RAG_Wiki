@@ -7,9 +7,7 @@ PDF or Markdown file, ask a question in plain English, and read a streamed
 answer where every claim links back to the passage it came from. If the answer
 is not in your documents, it says so instead of inventing one.
 
-[**Live demo**](https://rag-wiki.vercel.app) · [Architecture](docs/ARCHITECTURE.md) · [API reference](docs/API.md) · [Deployment guide](docs/DEPLOYMENT.md)
-
-> Replace the demo link above with your own Vercel URL after the first deploy.
+[**Live demo**](https://ai-research-assistant-six-gamma.vercel.app) · [Architecture](docs/ARCHITECTURE.md) · [API reference](docs/API.md) · [Deployment guide](docs/DEPLOYMENT.md)
 
 ![CI](https://github.com/Shafayathub/RAG_Wiki/actions/workflows/ci.yml/badge.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)

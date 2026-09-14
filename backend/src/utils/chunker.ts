@@ -1,7 +1,5 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { PDFParse } from "pdf-parse";
-import { marked } from "marked";
 import { getEncoding, type Tiktoken } from "js-tiktoken";
 import { AppError, type RawChunk } from "../types";
 import { config } from "../config/env";
@@ -174,6 +172,13 @@ export function splitText(text: string, pageNumber: number | null = null): RawCh
  * wrong page is worse than no citation at all.
  */
 async function chunkPdf(filePath: string): Promise<RawChunk[]> {
+  // Imported here rather than at module scope. pdf-parse bundles pdf.js, which
+  // needs browser globals it polyfills from an optional native package; when
+  // that package has no binary for the host platform the import throws. At
+  // module scope that failure travels up through ingest.service to app.ts and
+  // takes the entire API down — health checks included — over a dependency
+  // only this one branch uses.
+  const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: await readFile(filePath) });
 
   let text: string;
@@ -200,6 +205,11 @@ async function chunkPdf(filePath: string): Promise<RawChunk[]> {
 }
 
 async function chunkMarkdown(filePath: string): Promise<RawChunk[]> {
+  // marked is ESM-only and this package compiles to CommonJS. Node 22+ allows
+  // require() of ESM so a static import works locally, but the serverless
+  // runtime refuses it with ERR_REQUIRE_ESM. A dynamic import is the one form
+  // that works on both.
+  const { marked } = await import("marked");
   const raw = await readFile(filePath, "utf-8");
   const html = await marked(raw);
   const plainText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
