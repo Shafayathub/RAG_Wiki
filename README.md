@@ -7,9 +7,7 @@ PDF or Markdown file, ask a question in plain English, and read a streamed
 answer where every claim links back to the passage it came from. If the answer
 is not in your documents, it says so instead of inventing one.
 
-[**Live demo**](https://rag-wiki.vercel.app) · [Architecture](docs/ARCHITECTURE.md) · [API reference](docs/API.md) · [Deployment guide](docs/DEPLOYMENT.md)
-
-> Replace the demo link above with your own Vercel URL after the first deploy.
+[**Live demo**](https://ai-research-assistant-six-gamma.vercel.app) · [Architecture](docs/ARCHITECTURE.md) · [API reference](docs/API.md) · [Deployment guide](docs/DEPLOYMENT.md)
 
 ![CI](https://github.com/Shafayathub/RAG_Wiki/actions/workflows/ci.yml/badge.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
@@ -30,8 +28,9 @@ positions on those:
 | Combining two searches means combining incomparable scores | RRF fuses **ranks**, not scores, so no per-corpus tuning is needed |
 | A chunk boundary can make a fact unretrievable | Recursive splitting on semantic boundaries, with token overlap |
 | Models cite sources that do not exist | Citations are parsed from tags the model emitted and resolved against real rows |
-| Every question costs money | Three cache tiers, plus a per-IP budget limiter on the only paid endpoint |
+| Every question costs money | Three cache tiers, plus a per-IP budget limiter on each paid endpoint |
 | A cache outage should not be an outage | Every cache path degrades to a miss; readiness stays green without Redis |
+| A cache outage should not be a blank cheque | The budget limiters keep counting in-process rather than failing open |
 | Serverless freezes an instance the moment a response ends | Post-response writes are awaited, not fire-and-forget |
 
 ---
@@ -114,10 +113,12 @@ and post-response database writes awaited rather than left floating, because a
 frozen instance drops any promise still in flight.
 
 **Failure modes chosen deliberately.** Redis down means slower, not broken:
-caches miss, rate limiters fail open, readiness stays green. Postgres down fails
-readiness with 503 and refuses startup. Unexpected errors return a generic
-message with a request id, because raw messages leak connection strings and
-upstream payloads.
+caches miss, the general rate limiter fails open, readiness stays green. The two
+budget limiters are the exception — they fall back to an in-process counter,
+because an outage making the browsing free is fine and an outage making the
+model calls free is not. Postgres down fails readiness with 503 and refuses
+startup. Unexpected errors return a generic message with a request id, because
+raw messages leak connection strings and upstream payloads.
 
 ---
 
@@ -133,7 +134,7 @@ git clone https://github.com/Shafayathub/RAG_Wiki.git
 cd RAG_Wiki
 pnpm install
 
-cp .env.example backend/.env
+cp .env.example .env
 # then fill in DATABASE_URL, REDIS_URL and OPENROUTER_API_KEY
 
 pnpm migrate   # create the schema
@@ -197,13 +198,14 @@ a fallback topology are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Testing
 
-100 tests run in CI on every push.
+110 tests run in CI on every push.
 
 The suites concentrate on the logic where a bug would be invisible in manual
 use: RRF fusion ordering, chunk boundary and overlap behaviour, incremental SSE
 parsing across arbitrary network chunk splits, error status mapping, the
-production leak guard, CORS origin handling, and the demo-mode admin guard
-including timing-safe token comparison.
+production leak guard, CORS origin handling, the budget limiter's in-process
+fallback, the guard that rejects a short embedding response rather than storing
+a gap, and the demo-mode admin guard including timing-safe token comparison.
 
 ```bash
 pnpm test              # everything

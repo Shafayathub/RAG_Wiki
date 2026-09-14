@@ -69,7 +69,13 @@ async function requestEmbeddings(inputs: string[]): Promise<number[][]> {
       encoding_format: "float",
     });
 
-    const ordered: number[][] = new Array<number[]>(inputs.length);
+    // Dense, not `new Array(n)`: that produces holes, and `some`/`forEach` skip
+    // holes entirely, so the missing-vector check below would never fire and a
+    // hole would be stored as a chunk's embedding.
+    const ordered: Array<number[] | undefined> = Array.from(
+      { length: inputs.length },
+      () => undefined,
+    );
 
     // Providers are permitted to return results out of order, so index by the
     // response's own `index` field rather than by array position.
@@ -79,15 +85,20 @@ async function requestEmbeddings(inputs: string[]): Promise<number[][]> {
       }
     }
 
-    if (ordered.some((embedding) => embedding === undefined)) {
-      throw new AppError(
-        502,
-        "Embedding provider returned fewer vectors than inputs.",
-        "EMBEDDING_FAILED",
-      );
+    const complete: number[][] = [];
+
+    for (const embedding of ordered) {
+      if (embedding === undefined) {
+        throw new AppError(
+          502,
+          "Embedding provider returned fewer vectors than inputs.",
+          "EMBEDDING_FAILED",
+        );
+      }
+      complete.push(embedding);
     }
 
-    return ordered;
+    return complete;
   } catch (err) {
     if (err instanceof AppError) throw err;
 

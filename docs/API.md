@@ -37,13 +37,17 @@ Validation failures add a `details` array naming each offending field:
 | `NO_FILE` | 400 | Upload had no `file` field |
 | `INVALID_FILE_TYPE` | 400 | Extension is not PDF or Markdown |
 | `DEMO_READ_ONLY` | 403 | Destructive endpoint on a demo deployment, no admin token |
+| `PROTECTED_COLLECTION` | 403 | Ingest targeted a curated collection on a demo deployment |
 | `NOT_FOUND` | 404 | No such route or collection |
 | `DUPLICATE_COLLECTION` | 409 | A collection with that name exists |
 | `FILE_TOO_LARGE` | 413 | Upload exceeded `MAX_FILE_SIZE_MB` |
+| `DOCUMENT_TOO_LARGE` | 413 | Upload parsed to more than `MAX_CHUNKS_PER_DOCUMENT` chunks |
 | `EMPTY_DOCUMENT` | 422 | Parsed to zero chunks |
 | `RATE_LIMIT_EXCEEDED` | 429 | Per-IP request limit |
 | `LLM_RATE_LIMIT_EXCEEDED` | 429 | Per-IP question budget; includes `retry_after_seconds` |
+| `INGEST_RATE_LIMIT_EXCEEDED` | 429 | Per-IP upload budget; includes `retry_after_seconds` |
 | `EMBEDDING_PROVIDER_ERROR` | 502 | Embedding provider unreachable |
+| `EMBEDDING_FAILED` | 502 | Provider returned fewer vectors than inputs |
 | `INTERNAL_ERROR` | 500 | Unexpected failure; message is deliberately generic |
 
 Unexpected errors never echo the underlying message in production, because raw
@@ -135,7 +139,7 @@ collection.
 | Field | Type | Notes |
 |---|---|---|
 | `file` | file | `.pdf`, `.md` or `.markdown`, up to `MAX_FILE_SIZE_MB` |
-| `collection_name` | text | Created if it does not exist |
+| `collection_name` | text | Created if it does not exist; `PROTECTED_COLLECTIONS` are refused in demo mode |
 
 ```bash
 curl -X POST https://your-app.vercel.app/api/v1/ingest \

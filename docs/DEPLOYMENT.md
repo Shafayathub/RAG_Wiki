@@ -92,14 +92,31 @@ Preview, if you want preview deploys to work):
 | `DEMO_MODE` | `true` for a public demo |
 | `ADMIN_TOKEN` | A random string of at least 16 characters |
 | `MAX_FILE_SIZE_MB` | `4` |
+| `INGEST_RATE_LIMIT_MAX` | `3` uploads per IP per hour |
 
 The remaining variables in `.env.example` have sensible defaults and can be
 omitted. `APP_URL` is a chicken-and-egg problem on the very first deploy: deploy
 once, copy the URL Vercel assigns, set it, and redeploy.
 
-With `DEMO_MODE` on, `DELETE /api/v1/collections/:id` requires the
-`X-Admin-Token` header, so a visitor cannot wipe your seeded content while you
-keep full control with the token.
+`DEMO_MODE` is what makes the deployment safe to link from a CV. With it on:
+
+- `DELETE /api/v1/collections/:id` and `POST /api/v1/collections` require the
+  `X-Admin-Token` header, so a visitor cannot wipe or clutter your content while
+  you keep full control with the token.
+- Ingestion refuses to write into any name in `PROTECTED_COLLECTIONS`, which
+  defaults to the seeded demo collection. Uploading still works — into a
+  collection of the visitor's own — because that is the feature worth showing.
+  Without this, ingest's upsert-by-name would let a stranger merge a document
+  into your curated collection permanently.
+
+Two limits bound what a stranger can spend against your OpenRouter key:
+`LLM_RATE_LIMIT_MAX` questions and `INGEST_RATE_LIMIT_MAX` uploads per IP per
+window, with `MAX_CHUNKS_PER_DOCUMENT` capping the embeddings any single upload
+can bill. Unlike the general rate limiter, neither fails open when Redis is
+unreachable; they fall back to a per-instance counter instead.
+
+Leave `DEMO_MODE` off for a private or self-hosted deployment — every guard
+above then becomes a no-op.
 
 ---
 

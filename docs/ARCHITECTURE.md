@@ -211,9 +211,18 @@ never be served an answer computed over the whole corpus.
 Chosen deliberately, and tested:
 
 **Redis down is slower, not broken.** Every cache read and write is wrapped:
-a failed read is a miss, a failed write is ignored. Both rate limiters fail
-open, because an outage should not lock out legitimate users. Readiness stays
-green, because the application still returns correct answers.
+a failed read is a miss, a failed write is ignored. The general per-IP rate
+limiter fails open, because an outage should not lock legitimate users out of
+reading. Readiness stays green, because the application still returns correct
+answers.
+
+**Except where failing open spends money.** The two budget limiters — one on
+`/query`, one on `/ingest` — fall back to a per-instance counter instead. A
+serverless instance is short-lived, so that is a floor rather than a real limit,
+but a floor is the point: the endpoints that call a paid model must not become
+unmetered the moment the cache blinks. Both consume their budget with a Lua
+script, so the increment and its TTL cannot come apart and leave a counter that
+never resets.
 
 **Postgres down is fatal.** It is the source of truth, so readiness returns 503
 and the standalone server refuses to start.
@@ -271,6 +280,17 @@ Honest about what this is not:
 
 - **No authentication.** Every collection is public to anyone with the URL.
   Multi-tenancy would need a users table and a tenant column on every query.
+  `DEMO_MODE` is a stopgap, not a substitute: it gates the destructive endpoints
+  behind `ADMIN_TOKEN` and refuses ingestion into the curated seed collection,
+  but anyone can still upload into a collection of their own and read every
+  collection that exists.
+- **Ingested text is trusted input to the prompt.** A document can contain
+  instructions aimed at the model, and retrieval will happily place them in the
+  context alongside genuine passages. The blast radius is small — the model has
+  no tools, no secrets and no write access, so the worst case is a misleading
+  answer over a corpus someone controls — but on a public demo it is the reason
+  the seed collection is write-protected. A defence worth adding is a separate
+  pass that scores retrieved chunks for instruction-like content.
 - **No reranking model.** A cross-encoder over the fused top 20 would likely
   beat RRF alone, at the cost of latency and another model dependency.
 - **No incremental reindexing.** Changing `CHUNK_SIZE` or the embedding model

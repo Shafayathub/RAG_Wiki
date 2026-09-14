@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { CitationDrawer } from "./CitationDrawer";
 import { SAMPLE_QUESTIONS } from "../lib/sampleQuestions";
@@ -16,27 +16,93 @@ const AUTOSCROLL_THRESHOLD = 120;
 
 export function ChatWindow({ messages, isStreaming, onClear, onAskSample }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const emptyStateRef = useRef<HTMLDivElement>(null);
+  const citationTriggerRef = useRef<HTMLElement | null>(null);
+  const justClearedRef = useRef(false);
   const [drawerChunks, setDrawerChunks] = useState<CitationChunk[] | null>(null);
 
-  // Follow the stream only while the reader is already at the bottom;
-  // yanking the viewport back down while they are reading earlier text is
-  // the single most irritating thing a chat UI can do.
+  // Whether the reader is following the stream, measured from the scroll
+  // position *before* new content lands. Measuring after the fact misreads a
+  // single large flush as "they scrolled away" and silently stops following.
+  const isFollowingRef = useRef(true);
+  const isEmpty = messages.length === 0;
+
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
 
-    const distanceFromBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight;
+    const onScroll = () => {
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      isFollowingRef.current = distanceFromBottom <= AUTOSCROLL_THRESHOLD;
+    };
 
-    if (distanceFromBottom <= AUTOSCROLL_THRESHOLD) {
-      container.scrollTop = container.scrollHeight;
-    }
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [isEmpty]);
+
+  // Layout effect, not effect: correcting the scroll after paint shows the old
+  // position for a frame, on every flush.
+  useLayoutEffect(() => {
+    const container = scrollRef.current;
+    // Yanking the viewport down while they are reading earlier text is the
+    // single most irritating thing a chat UI can do.
+    if (container && isFollowingRef.current) container.scrollTop = container.scrollHeight;
   }, [messages]);
 
-  if (messages.length === 0) {
+  // Clearing unmounts the button that was clicked, so hand focus to the empty
+  // state rather than dropping it on <body>.
+  useEffect(() => {
+    if (isEmpty && justClearedRef.current) {
+      justClearedRef.current = false;
+      emptyStateRef.current?.focus();
+    }
+  }, [isEmpty]);
+
+  const handleClear = useCallback(() => {
+    justClearedRef.current = true;
+    onClear();
+  }, [onClear]);
+
+  const openDrawer = useCallback((chunks: CitationChunk[]) => {
+    citationTriggerRef.current = document.activeElement as HTMLElement | null;
+    setDrawerChunks(chunks);
+  }, []);
+
+  const closeDrawer = useCallback(() => {
+    setDrawerChunks(null);
+    // The trigger stays mounted behind the drawer, so returning focus to it
+    // puts the reader back where they were.
+    citationTriggerRef.current?.focus();
+    citationTriggerRef.current = null;
+  }, []);
+
+  // Screen readers are told the answer once, when it is complete. A region that
+  // mutates every animation frame produces overlapping speech and no usable
+  // answer, so this holds a status line until the stream finishes and only then
+  // changes to the full text.
+  const lastMessage = messages[messages.length - 1];
+  const announcement = isStreaming
+    ? "Assistant is answering…"
+    : lastMessage?.role === "assistant"
+      ? lastMessage.content
+      : "";
+
+  const liveRegion = (
+    <p aria-live="polite" aria-atomic="true" className="sr-only">
+      {announcement}
+    </p>
+  );
+
+  if (isEmpty) {
     return (
       <div className="flex-1 overflow-y-auto flex items-center justify-center p-4">
-        <div className="text-center space-y-5 max-w-md">
+        {liveRegion}
+        <div
+          ref={emptyStateRef}
+          tabIndex={-1}
+          className="text-center space-y-5 max-w-md focus:outline-none"
+        >
           <div className="space-y-2">
             <div className="text-4xl sm:text-5xl" aria-hidden="true">
               🔍
@@ -44,14 +110,14 @@ export function ChatWindow({ messages, isStreaming, onClear, onAskSample }: Prop
             <h2 className="text-base font-semibold text-gray-200">
               Ask a question about your documents
             </h2>
-            <p className="text-xs sm:text-sm text-gray-500">
+            <p className="text-xs sm:text-sm text-gray-400">
               Answers are generated only from the uploaded sources, and every
               claim links back to the passage it came from.
             </p>
           </div>
 
           <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-gray-600">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
               Try one of these
             </p>
             <ul className="space-y-1.5">
@@ -80,14 +146,17 @@ export function ChatWindow({ messages, isStreaming, onClear, onAskSample }: Prop
 
   return (
     <div className="flex flex-1 min-h-0 relative">
+      {liveRegion}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4"
       >
+        {/* aria-live is off here on purpose: the text mutates on every
+            animation frame while streaming. The sr-only region above announces
+            the finished answer once instead. */}
         <div
           role="log"
-          aria-live="polite"
-          aria-atomic="false"
+          aria-live="off"
           aria-busy={isStreaming}
           className="space-y-3 sm:space-y-4"
         >
@@ -95,7 +164,7 @@ export function ChatWindow({ messages, isStreaming, onClear, onAskSample }: Prop
             <MessageBubble
               key={message.id}
               message={message}
-              onViewCitations={setDrawerChunks}
+              onViewCitations={openDrawer}
             />
           ))}
         </div>
@@ -104,7 +173,7 @@ export function ChatWindow({ messages, isStreaming, onClear, onAskSample }: Prop
       {!isStreaming && (
         <button
           type="button"
-          onClick={onClear}
+          onClick={handleClear}
           className="
             absolute top-2 right-2 text-xs text-gray-400 hover:text-gray-100
             transition-colors bg-gray-900/90 backdrop-blur-sm px-2 py-1 rounded-md
@@ -118,7 +187,7 @@ export function ChatWindow({ messages, isStreaming, onClear, onAskSample }: Prop
       {drawerChunks && (
         <>
           <div
-            onClick={() => setDrawerChunks(null)}
+            onClick={closeDrawer}
             className="absolute inset-0 bg-black/40 z-10 sm:hidden"
           />
           <div
@@ -129,7 +198,7 @@ export function ChatWindow({ messages, isStreaming, onClear, onAskSample }: Prop
           >
             <CitationDrawer
               chunks={drawerChunks}
-              onClose={() => setDrawerChunks(null)}
+              onClose={closeDrawer}
             />
           </div>
         </>
@@ -143,7 +212,12 @@ interface BubbleProps {
   onViewCitations: (chunks: CitationChunk[]) => void;
 }
 
-function MessageBubble({ message, onViewCitations }: BubbleProps) {
+/**
+ * Memoised because a streaming answer re-renders the transcript up to sixty
+ * times a second, and without this every finished bubble re-parses its
+ * Markdown on each of those renders.
+ */
+const MessageBubble = memo(function MessageBubble({ message, onViewCitations }: BubbleProps) {
   const isUser = message.role === "user";
   const citationCount = message.citations?.chunks.length ?? 0;
 
@@ -212,4 +286,4 @@ function MessageBubble({ message, onViewCitations }: BubbleProps) {
       </div>
     </div>
   );
-}
+});

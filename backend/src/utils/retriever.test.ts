@@ -56,8 +56,8 @@ describe("fuseWithRRF", () => {
     const [vectorOnly] = fuseWithRRF(vector([8]), [], 1);
     const [ftsOnly] = fuseWithRRF([], fts([9]), 1);
 
-    expect(vectorOnly).toMatchObject({ fts_rank: 0 });
-    expect(ftsOnly).toMatchObject({ vector_score: 0 });
+    expect(vectorOnly).toMatchObject({ fts_rank: null });
+    expect(ftsOnly).toMatchObject({ vector_score: null });
   });
 
   it("truncates to topK after fusing, not before", () => {

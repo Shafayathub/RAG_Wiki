@@ -54,10 +54,34 @@ describe("ChatWindow", () => {
     expect(onAskSample).toHaveBeenCalledWith(SAMPLE_QUESTIONS[0]);
   });
 
-  it("announces the transcript as a live region so answers are read aloud", () => {
+  it("keeps the transcript itself out of the live region while streaming", () => {
+    // The transcript mutates on every animation frame, so announcing it
+    // directly produces overlapping speech rather than a readable answer.
+    setup([{ ...ANSWER, isStreaming: true }], true);
+
+    const log = screen.getByRole("log");
+    expect(log).toHaveAttribute("aria-live", "off");
+    expect(log).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("Assistant is answering…")).toBeInTheDocument();
+  });
+
+  it("announces the finished answer once, when it is complete", () => {
     setup([ANSWER]);
 
-    expect(screen.getByRole("log")).toHaveAttribute("aria-live", "polite");
+    const status = screen.getByText(ANSWER.content, { selector: ".sr-only" });
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).toHaveAttribute("aria-atomic", "true");
+  });
+
+  it("returns focus to the citation button when the drawer closes", async () => {
+    setup([ANSWER]);
+
+    const trigger = screen.getByRole("button", { name: /view 1 source/i });
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole("button", { name: /close sources panel/i }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("opens the sources drawer from the citation button", async () => {

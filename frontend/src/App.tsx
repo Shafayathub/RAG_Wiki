@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { UploadPanel } from "./components/UploadPanel";
 import { ChatWindow } from "./components/ChatWindow";
 import { QueryInput } from "./components/QueryInput";
@@ -16,6 +16,31 @@ export default function App() {
   const { collections, isLoading: isLoadingCollections, refresh } = useCollections();
 
   const isStreaming = streamState.status === "streaming";
+
+  // Each toggle unmounts the button that was clicked, so focus would otherwise
+  // fall back to <body> and the next Tab would restart from the skip link.
+  const openButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const pendingFocusRef = useRef<"open" | "close" | null>(null);
+
+  useEffect(() => {
+    const target = pendingFocusRef.current;
+    if (!target) return;
+
+    pendingFocusRef.current = null;
+    if (target === "open") closeButtonRef.current?.focus();
+    else openButtonRef.current?.focus();
+  }, [sidebarOpen]);
+
+  const openSidebar = useCallback(() => {
+    pendingFocusRef.current = "open";
+    setSidebarOpen(true);
+  }, []);
+
+  const closeSidebar = useCallback(() => {
+    pendingFocusRef.current = "close";
+    setSidebarOpen(false);
+  }, []);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(DESKTOP_QUERY);
@@ -45,7 +70,7 @@ export default function App() {
 
       {sidebarOpen && (
         <div
-          onClick={() => setSidebarOpen(false)}
+          onClick={closeSidebar}
           aria-hidden="true"
           className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
         />
@@ -71,8 +96,9 @@ export default function App() {
         <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800 shrink-0">
           <h1 className="font-bold text-base text-gray-100 truncate">RAG Wiki</h1>
           <button
+            ref={closeButtonRef}
             type="button"
-            onClick={() => setSidebarOpen(false)}
+            onClick={closeSidebar}
             aria-label="Close document library"
             className="
               text-gray-400 hover:text-gray-100 text-sm p-1 rounded
@@ -87,13 +113,13 @@ export default function App() {
           <UploadPanel onUploadSuccess={handleUploadSuccess} />
 
           <section aria-labelledby="collections-heading" className="space-y-2">
-            <h2 id="collections-heading" className="text-xs uppercase tracking-wide text-gray-500">
+            <h2 id="collections-heading" className="text-xs uppercase tracking-wide text-gray-400">
               Collections
             </h2>
             {isLoadingCollections ? (
-              <p className="text-xs text-gray-500">Loading…</p>
+              <p className="text-xs text-gray-400">Loading…</p>
             ) : collections.length === 0 ? (
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-400">
                 Nothing ingested yet. Upload a document to get started.
               </p>
             ) : (
@@ -106,7 +132,7 @@ export default function App() {
                     <span className="truncate" title={collection.name}>
                       {collection.name}
                     </span>
-                    <span className="text-gray-500 shrink-0">
+                    <span className="text-gray-400 shrink-0">
                       {collection.chunk_count} chunks
                     </span>
                   </li>
@@ -121,8 +147,9 @@ export default function App() {
         <header className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 md:px-6 py-3 border-b border-gray-800 shrink-0">
           {!sidebarOpen && (
             <button
+              ref={openButtonRef}
               type="button"
-              onClick={() => setSidebarOpen(true)}
+              onClick={openSidebar}
               aria-label="Open document library"
               className="
                 text-gray-400 hover:text-gray-100 text-lg p-1 -ml-1 rounded

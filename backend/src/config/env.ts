@@ -1,5 +1,35 @@
-import "dotenv/config";
+import fs from "node:fs";
+import path from "node:path";
+import dotenv from "dotenv";
 import { z } from "zod";
+
+/**
+ * One .env at the repository root serves the whole workspace. Resolving it
+ * from this file rather than the cwd is what makes that work: `pnpm dev` runs
+ * with cwd=backend/, `pnpm seed` runs from the root, and dotenv's default
+ * would quietly load a different file (or none) in each case.
+ */
+function findEnvFile(): string | undefined {
+  let dir = __dirname;
+
+  for (let depth = 0; depth < 8; depth++) {
+    const candidate = path.join(dir, ".env");
+    if (fs.existsSync(candidate)) return candidate;
+
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return undefined;
+}
+
+const envFile = findEnvFile();
+// On Vercel there is no file at all — the platform injects real environment
+// variables, and dotenv never overwrites those.
+// quiet: the loader banner is noise in a dev terminal and invalid JSON in
+// production logs, which are parsed line by line.
+if (envFile) dotenv.config({ path: envFile, quiet: true });
 
 /** `"false"`/`"0"` must read as false — `Boolean("false")` does not. */
 const booleanFromEnv = (fallback: boolean) =>
@@ -39,15 +69,24 @@ const envSchema = z.object({
     ),
 
   OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
-  OPENROUTER_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
-  OPENROUTER_EMBED_MODEL: z.string().min(1).default("openai/text-embedding-3-small"),
+  // Free-tier defaults, so a fresh clone runs without a funded account. Any
+  // OpenRouter model works; changing the embedding model means changing
+  // EMBED_DIMENSIONS and the column width to match.
+  OPENROUTER_MODEL: z.string().min(1).default("nvidia/nemotron-3-super-120b-a12b:free"),
+  OPENROUTER_EMBED_MODEL: z
+    .string()
+    .min(1)
+    .default("nvidia/llama-nemotron-embed-vl-1b-v2:free"),
 
   /** Public origin of the deployed app. Used for CORS and OpenRouter attribution. */
   APP_URL: z.string().url().default("http://localhost:5173"),
   /** Extra allowed browser origins, comma separated. APP_URL is always allowed. */
   CORS_ORIGINS: csvFromEnv,
 
-  EMBED_DIMENSIONS: z.coerce.number().int().positive().max(2000).default(1536),
+  // Must equal the width of chunks.embedding, which 001_init creates as
+  // vector(2000): the embedding model returns 2048 and 2000 is the most a
+  // pgvector HNSW index supports. A mismatch fails readiness, loudly.
+  EMBED_DIMENSIONS: z.coerce.number().int().positive().max(2000).default(2000),
   CHUNK_SIZE: z.coerce.number().int().positive().default(512),
   CHUNK_OVERLAP: z.coerce.number().int().nonnegative().default(50),
   TOP_K_RESULTS: z.coerce.number().int().positive().max(20).default(5),
@@ -58,6 +97,12 @@ const envSchema = z.object({
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
   LLM_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(3_600_000),
   LLM_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+  // Ingestion bills one embedding call per batch of chunks, so it needs its own
+  // budget: far fewer uploads than questions, because each costs much more.
+  INGEST_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(3_600_000),
+  INGEST_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(3),
+  /** Hard ceiling on billed embeddings per upload, whatever the file contains. */
+  MAX_CHUNKS_PER_DOCUMENT: z.coerce.number().int().positive().default(400),
 
   CACHE_TTL_QUERY: z.coerce.number().int().positive().default(3600),
   CACHE_TTL_EMBEDDING: z.coerce.number().int().positive().default(86_400),
@@ -69,11 +114,27 @@ const envSchema = z.object({
    */
   DEMO_MODE: booleanFromEnv(false),
   ADMIN_TOKEN: z.string().min(16).optional(),
+  /**
+   * Collections a public demo refuses to ingest into, comma separated. Ingest
+   * upserts by name, so without this a stranger can merge their document into
+   * the curated seed collection and there is no per-document undo.
+   */
+  PROTECTED_COLLECTIONS: csvFromEnv,
 
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).optional(),
 });
 
-const parsed = envSchema.safeParse(process.env);
+/**
+ * `KEY=` in a .env file gives an empty string, which Zod treats as a present
+ * value: a bare `ADMIN_TOKEN=` would fail `min(16)` and refuse to start. An
+ * empty variable is indistinguishable from an unset one here, so drop both and
+ * let the schema defaults apply.
+ */
+const presentEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([, value]) => value !== undefined && value.trim() !== ""),
+);
+
+const parsed = envSchema.safeParse(presentEnv);
 
 if (!parsed.success) {
   const detail = parsed.error.issues
@@ -88,6 +149,12 @@ if (!parsed.success) {
 const env = parsed.data;
 
 const allowedOrigins = Array.from(new Set([env.APP_URL, ...env.CORS_ORIGINS]));
+
+/** The collection `pnpm seed` populates. Named here so it can be protected by default. */
+export const SEED_COLLECTION_NAME = "Demo — How RAG Wiki Works";
+
+const protectedCollections =
+  env.PROTECTED_COLLECTIONS.length > 0 ? env.PROTECTED_COLLECTIONS : [SEED_COLLECTION_NAME];
 
 if (env.DEMO_MODE && !env.ADMIN_TOKEN) {
   throw new Error(
@@ -122,6 +189,9 @@ export const config = {
   rateLimitMaxRequests: env.RATE_LIMIT_MAX_REQUESTS,
   llmRateLimitWindowMs: env.LLM_RATE_LIMIT_WINDOW_MS,
   llmRateLimitMax: env.LLM_RATE_LIMIT_MAX,
+  ingestRateLimitWindowMs: env.INGEST_RATE_LIMIT_WINDOW_MS,
+  ingestRateLimitMax: env.INGEST_RATE_LIMIT_MAX,
+  maxChunksPerDocument: env.MAX_CHUNKS_PER_DOCUMENT,
 
   cacheTtlQuery: env.CACHE_TTL_QUERY,
   cacheTtlEmbedding: env.CACHE_TTL_EMBEDDING,
@@ -129,6 +199,7 @@ export const config = {
 
   demoMode: env.DEMO_MODE,
   adminToken: env.ADMIN_TOKEN,
+  protectedCollections,
 } as const;
 
 export type AppConfig = typeof config;

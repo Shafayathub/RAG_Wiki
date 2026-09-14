@@ -54,7 +54,13 @@ app.get("/health", (_req: Request, res: Response) => {
   });
 });
 
+app.use("/api", redisReady, ipRateLimiter);
+
 // ── Readiness — reports which dependency is down, and why ────────────────────
+// Registered after the limiter deliberately: it runs a real query and a real
+// PING on every hit, so above it, it would be an unmetered way to exhaust the
+// single Postgres connection each serverless instance gets. Uptime monitors
+// should poll /health, which is free and touches nothing.
 app.get("/api/v1/health", async (_req: Request, res: Response) => {
   const [database, cache] = await Promise.all([
     pool
@@ -76,8 +82,6 @@ app.get("/api/v1/health", async (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
   });
 });
-
-app.use("/api", redisReady, ipRateLimiter);
 
 app.use("/api/v1/ingest", ingestRouter);
 app.use("/api/v1/query", queryRouter);
